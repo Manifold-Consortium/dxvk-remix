@@ -56,7 +56,7 @@ tracy_public_include_dirs = include_directories('.')
 tracy = static_library('tracy', tracy_src, tracy_header_files,
 dependencies        : [ threads_dep ],
 include_directories : tracy_public_include_dirs,
-override_options    : [ 'cpp_std=c++11' ],
+override_options    : [ 'cpp_std=c++17' ],
 install             : true)
 
 install_headers(includes)
