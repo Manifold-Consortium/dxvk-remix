@@ -54,7 +54,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <NMakeOutput>..\_Comp64Debug\src\d3d9\d3d9.dll</NMakeOutput>
+    <NMakeOutput>..\_Comp64Debug\src\$d3dversion\$d3dversion.dll</NMakeOutput>
     <NMakeBuildCommandLine>ninja -C ..\_Comp64Debug</NMakeBuildCommandLine>
     <NMakeReBuildCommandLine>ninja -C ..\_Comp64Debug clean all</NMakeReBuildCommandLine>
     <NMakeCleanCommandLine>ninja -C ..\_Comp64Debug clean</NMakeCleanCommandLine>
@@ -64,7 +64,7 @@
     <AdditionalOptions>/std:c++17 /fpermissive-</AdditionalOptions>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugOptimized|x64'">
-    <NMakeOutput>..\_Comp64DebugOptimized\src\d3d9\d3d9.dll</NMakeOutput>
+    <NMakeOutput>..\_Comp64DebugOptimized\src\$d3dversion\$d3dversion.dll</NMakeOutput>
     <NMakeBuildCommandLine>ninja -C ..\_Comp64DebugOptimized</NMakeBuildCommandLine>
     <NMakeReBuildCommandLine>ninja -C ..\_Comp64DebugOptimized clean all</NMakeReBuildCommandLine>
     <NMakeCleanCommandLine>ninja -C ..\_Comp64DebugOptimized clean</NMakeCleanCommandLine>
@@ -74,7 +74,7 @@
     <AdditionalOptions>/std:c++17 /fpermissive-</AdditionalOptions>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <NMakeOutput>..\_Comp64Release\src\d3d9\d3d9.dll</NMakeOutput>
+    <NMakeOutput>..\_Comp64Release\src\$d3dversion\$d3dversion.dll</NMakeOutput>
     <NMakeBuildCommandLine>ninja -C ..\_Comp64Release</NMakeBuildCommandLine>
     <NMakeReBuildCommandLine>ninja -C ..\_Comp64Release clean all</NMakeReBuildCommandLine>
     <NMakeCleanCommandLine>ninja -C ..\_Comp64Release clean</NMakeCleanCommandLine>

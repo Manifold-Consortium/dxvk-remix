@@ -71,7 +71,7 @@ namespace dxvk {
 
     // Create the buffer and set the entire buffer slice as mapped,
     // so that we only have to update it when invalidating th buffer
-    m_buffer = m_parent->GetDXVKDevice()->createBuffer(info, GetMemoryFlags());
+    m_buffer = m_parent->GetDXVKDevice()->createBuffer(info, GetMemoryFlags(), DxvkMemoryStats::Category::AppBuffer);
     m_mapped = m_buffer->getSliceHandle();
 
     // For Stream Output buffers we need a counter
@@ -271,7 +271,7 @@ namespace dxvk {
                 | VK_ACCESS_INDIRECT_COMMAND_READ_BIT
                 | VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT
                 | VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT;
-    return device->createBuffer(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    return device->createBuffer(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppBuffer);
   }
   
 

@@ -90,6 +90,7 @@ def generate_dxvk_project(output_root_path, dxvk_cpp_defines):
 
     project_template = Template(open("dxvk-remix.vcxproj.template", "rt").read())
     data = project_template.safe_substitute(
+        d3dversion="d3d9",
         dxvk_remix_project_guid=dxvk_remix_guid(),
         dxvk_cpp_defines=dxvk_cpp_defines,
         include_search_path_debug=include_search_path_debug,

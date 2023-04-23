@@ -153,7 +153,7 @@ namespace dxvk {
       info.tiling = VK_IMAGE_TILING_OPTIMAL;
       info.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       info.shared = VK_FALSE;
-      dxvkImage = m_copy = pDevice->GetDXVKDevice()->createImage(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      dxvkImage = m_copy = pDevice->GetDXVKDevice()->createImage(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppBuffer);
     }
 
     DXGI_VK_FORMAT_INFO formatInfo = pDevice->LookupFormat(resourceDesc.Format, DXGI_VK_FORMAT_MODE_COLOR);
@@ -371,7 +371,7 @@ namespace dxvk {
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     bufferInfo.stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     bufferInfo.access = VK_ACCESS_UNIFORM_READ_BIT;
-    m_ubo = Device->createBuffer(bufferInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    m_ubo = Device->createBuffer(bufferInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppBuffer);
   }
 
 

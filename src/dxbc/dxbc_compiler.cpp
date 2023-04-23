@@ -1104,10 +1104,10 @@ namespace dxvk {
       ? DxbcResourceType::Structured
       : DxbcResourceType::Raw;
     
-    uint32_t resStride = isStructured
+    int32_t resStride = isStructured
       ? ins.imm[0].u32
       : 0;
-    
+
     uint32_t resAlign = isStructured
       ? (resStride & -resStride)
       : 16;

@@ -1927,7 +1927,7 @@ namespace dxvk {
     enabled.core.features.shaderStorageImageWriteWithoutFormat    = VK_TRUE;
     enabled.core.features.depthBounds                             = supported.core.features.depthBounds;
 
-    enabled.shaderDrawParameters.shaderDrawParameters             = VK_TRUE;
+    // enabled.shaderDrawParameters.shaderDrawParameters             = VK_FALSE;
 
     enabled.extMemoryPriority.memoryPriority                      = supported.extMemoryPriority.memoryPriority;
 
@@ -1956,7 +1956,7 @@ namespace dxvk {
       enabled.core.features.shaderCullDistance                    = VK_TRUE;
       enabled.core.features.textureCompressionBC                  = VK_TRUE;
       enabled.extDepthClipEnable.depthClipEnable                  = supported.extDepthClipEnable.depthClipEnable;
-      enabled.extHostQueryReset.hostQueryReset                    = supported.extHostQueryReset.hostQueryReset;
+      // enabled.extHostQueryReset.hostQueryReset                    = supported.extHostQueryReset.hostQueryReset;
     }
     
     if (featureLevel >= D3D_FEATURE_LEVEL_9_2) {

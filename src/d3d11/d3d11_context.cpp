@@ -4433,7 +4433,7 @@ namespace dxvk {
                 | VK_ACCESS_SHADER_READ_BIT;
 
     return DxvkBufferSlice(m_device->createBuffer(info,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT));
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, DxvkMemoryStats::Category::AppBuffer));
   }
   
 
