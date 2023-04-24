@@ -19,12 +19,16 @@ public:
   D3D11App() : m_hwnd(), m_wc() { };
   ~D3D11App()
   {
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+    if (g_pSwapChain) {
+      ImGui_ImplDX11_Shutdown();
+      ImGui_ImplWin32_Shutdown();
+      ImGui::DestroyContext();
+    }
     CleanupDeviceD3D();
-    ::DestroyWindow(m_hwnd);
-    ::UnregisterClassW(m_wc.lpszClassName, m_wc.hInstance);
+    if (m_wc.lpszClassName) {
+      ::DestroyWindow(m_hwnd);
+      ::UnregisterClassW(m_wc.lpszClassName, m_wc.hInstance);
+    }
   }
   int Run(int, char**);
   inline bool CreateDeviceD3D();

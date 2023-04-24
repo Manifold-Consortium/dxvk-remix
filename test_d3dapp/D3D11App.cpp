@@ -203,9 +203,19 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 int main(int argc, char **argv) {
-  AllocConsole();
+  FILE* conout = nullptr;
+  FILE* conerr = nullptr;
+  freopen_s(&conout, "CONOUT$", "w", stdout);
+  freopen_s(&conerr, "CONERR$", "w", stderr);
+  if (!conout || !conerr) {
+    return 1;
+  }
+
   auto App = new D3D11App();
   App->Run(argc, argv);
   delete App;
-  FreeConsole();
+
+  fclose(conout);
+  fclose(conout);
+  return 0;
 }
