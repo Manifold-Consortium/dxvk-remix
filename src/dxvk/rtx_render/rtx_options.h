@@ -1021,7 +1021,11 @@ namespace dxvk {
     
     bool getIsOpacityMicromapSupported() const { return opacityMicromap.isSupported; }
     void setIsOpacityMicromapSupported(bool enabled) { opacityMicromap.isSupported = enabled; }
-    bool getEnableOpacityMicromap() const { return opacityMicromap.enable() && opacityMicromap.isSupported; }
+    // XXX: Force disable as *this will not be valid 
+    bool getEnableOpacityMicromap() const {
+      // return (opacityMicromap.enable() && opacityMicromap.isSupported);
+      return false;
+    }
     void setEnableOpacityMicromap(bool enabled) { opacityMicromap.enableRef() = enabled; }
 
     bool getEnableAnyReplacements() { return enableReplacementAssets() && (enableReplacementLights() || enableReplacementMeshes() || enableReplacementMaterials()); }
