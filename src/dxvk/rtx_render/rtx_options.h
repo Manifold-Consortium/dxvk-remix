@@ -390,8 +390,8 @@ namespace dxvk {
     RTX_OPTION("rtx", float, fogRemapColorStrength, 1.0f, "");
 
     // Note: Cached values used to precompute quantities for options fetching to not have to needlessly recompute them.
-    uint8_t cachedFroxelReservoirSamplesStabilityHistoryRange;
-    uint8_t cachedFroxelKernelRadiusStabilityHistoryRange;
+    static inline uint8_t cachedFroxelReservoirSamplesStabilityHistoryRange = 0;
+    static inline uint8_t cachedFroxelKernelRadiusStabilityHistoryRange = 0;
 
     // Alpha Test/Blend Options
     RTX_OPTION("rtx", bool, enableAlphaBlend, true, "Enable rendering alpha blended geometry, used for partial opacity and other blending effects on various surfaces in many games.");
@@ -1021,8 +1021,9 @@ namespace dxvk {
     uint getInstanceOverrideInstanceIdxRange() { return instanceOverrideInstanceIdxRange(); }
     bool getInstanceOverrideSelectedPrintMaterialHash() { return instanceOverrideSelectedInstancePrintMaterialHash(); }
     
-    bool getIsOpacityMicromapSupported() const { return opacityMicromap.isSupported; }
-    void setIsOpacityMicromapSupported(bool enabled) { opacityMicromap.isSupported = enabled; }
+    // bool getIsOpacityMicromapSupported() const { return opacityMicromap.isSupported; }
+    bool getIsOpacityMicromapSupported() const { return false; }
+    void setIsOpacityMicromapSupported(bool enabled) { }
     // XXX: Force disable as *this will not be valid 
     bool getEnableOpacityMicromap() const {
       // return (opacityMicromap.enable() && opacityMicromap.isSupported);
