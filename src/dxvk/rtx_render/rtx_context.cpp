@@ -435,7 +435,7 @@ namespace dxvk {
 
         Resources::RaytracingOutput& rtOutput = getResourceManager().getRaytracingOutput();
 
-        updateReflexConstants();
+        // updateReflexConstants();
 
         // Generate ray tracing constant buffer
         updateRaytraceArgsConstantBuffer(m_cmd, rtOutput, frameTimeSecs);

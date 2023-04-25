@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <dxgi.h>
 #include <d3d11.h>
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
@@ -16,7 +17,7 @@ private:
   HWND m_hwnd;
   WNDCLASSEXW m_wc;
 public:
-  D3D11App() : m_hwnd(), m_wc() { };
+   D3D11App() : m_hwnd(), m_wc() { };
   ~D3D11App()
   {
     if (g_pSwapChain) {

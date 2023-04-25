@@ -1,8 +1,10 @@
 #pragma once
 
+#include "d3d11_context_imm.h"
 #include "d3d11_texture.h"
 
 #include "../dxvk/hud/dxvk_hud.h"
+#include "../dxvk/imgui/dxvk_imgui.h"
 
 #include "../dxvk/dxvk_swapchain_blitter.h"
 
@@ -73,17 +75,35 @@ namespace dxvk {
             BOOL                      Windowed,
       const DXGI_MODE_DESC*           pDisplayMode);
 
+    Rc<ImGUI> getGUI() const { return m_imgui; }
+
+    // NV-DXVK start: App Controlled FSE
+    bool AcquireFullscreenExclusive() const {
+      return m_presenter->acquireFullscreenExclusive() == VK_SUCCESS;
+    }
+    bool ReleaseFullscreenExclusive() const {
+      return m_presenter->releaseFullscreenExclusive() == VK_SUCCESS;
+    }
+    // NV-DXVK end
+
   private:
 
     enum BindingIds : uint32_t {
       Image = 0,
       Gamma = 1,
     };
+    struct WindowState {
+      LONG style   = 0;
+      LONG exstyle = 0;
+      RECT rect    = { 0, 0, 0, 0 };
+    };
 
     Com<D3D11DXGIDevice, false> m_dxgiDevice;
     
     D3D11Device*              m_parent;
     HWND                      m_window;
+    HMONITOR                  m_monitor;
+    WindowState               m_windowState;
 
     DXGI_SWAP_CHAIN_DESC1     m_desc;
 
@@ -97,6 +117,7 @@ namespace dxvk {
     Rc<DxvkSwapchainBlitter>  m_blitter;
 
     Rc<hud::Hud>              m_hud;
+    Rc<ImGUI>                 m_imgui;
 
     D3D11Texture2D*           m_backBuffer = nullptr;
     DxvkSubmitStatus          m_presentStatus;
@@ -156,6 +177,12 @@ namespace dxvk {
             UINT                      Preferred);
     
     VkFullScreenExclusiveEXT PickFullscreenMode();
+
+    HRESULT EnterFullscreenMode(Com<D3D11DXGIDevice, false> *m_dxgiDevice);
+    
+    HRESULT LeaveFullscreenMode();
+    
+    HRESULT RestoreDisplayMode(HMONITOR hMonitor);
 
     std::string GetApiName() const;
 

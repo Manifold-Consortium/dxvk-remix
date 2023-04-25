@@ -3,8 +3,11 @@
 
 #include "D3D11App.hpp"
 
-#define WAPPNAME L"D3D11App"
-#define APPNAME   "D3D11App"
+constexpr auto WAPPNAME = L"D3D11App";
+constexpr auto APPNAME  = "D3D11App";
+
+// Forward declare message handler from imgui_impl_win32.cpp
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 
 int D3D11App::Run(int, char **)
@@ -55,7 +58,6 @@ int D3D11App::Run(int, char **)
 
   // Our state
   bool show_demo_window = true;
-  bool show_another_window = false;
   ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
   // Main loop
@@ -114,21 +116,20 @@ inline bool D3D11App::CreateDeviceD3D()
 
   UINT createDeviceFlags = 0;
   // make sure we are debuggin it
-  createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+  // createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
   D3D_FEATURE_LEVEL featureLevel;
-  const D3D_FEATURE_LEVEL featureLevelArray[1] = {
-      D3D_FEATURE_LEVEL_11_0,
+  const D3D_FEATURE_LEVEL featureLevelArray[2] = {
+      D3D_FEATURE_LEVEL_11_1,
+      D3D_FEATURE_LEVEL_10_1,
   };
-
   HRESULT res = D3D11CreateDeviceAndSwapChain(
-      nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray, 1, D3D11_SDK_VERSION,
-      &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext
+    nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray, 1, D3D11_SDK_VERSION,
+    &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext
   );
   if (res != S_OK)
     return false;
   if (!CreateRenderTarget())
     return false;
-
   return true;
 }
 
@@ -171,8 +172,6 @@ inline void D3D11App::CleanupRenderTarget()
   }
 }
 
-// Forward declare message handler from imgui_impl_win32.cpp
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
   if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
@@ -204,10 +203,8 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 int main(int argc, char **argv) {
   FILE* conout = nullptr;
-  FILE* conerr = nullptr;
   freopen_s(&conout, "CONOUT$", "w", stdout);
-  freopen_s(&conerr, "CONERR$", "w", stderr);
-  if (!conout || !conerr) {
+  if (!conout) {
     return 1;
   }
 
@@ -215,7 +212,6 @@ int main(int argc, char **argv) {
   App->Run(argc, argv);
   delete App;
 
-  fclose(conout);
   fclose(conout);
   return 0;
 }

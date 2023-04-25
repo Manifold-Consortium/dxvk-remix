@@ -457,6 +457,11 @@ namespace dxvk {
     enabledFeatures.vulkan12Features.uniformAndStorageBuffer8BitAccess = VK_TRUE;
     enabledFeatures.vulkan12Features.timelineSemaphore = VK_TRUE;
 
+    // NV-DXVK start: JITD3D
+    enabledFeatures.vulkan12Features.shaderOutputLayer = VK_TRUE;
+    enabledFeatures.vulkan12Features.shaderOutputViewportIndex = VK_TRUE;
+    // NV-DXVK end: JITD3D
+
     // NV-DXVK start: RTXIO
 #ifdef WITH_RTXIO
     if (RtxIo::enabled()) {

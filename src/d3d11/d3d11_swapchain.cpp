@@ -1,8 +1,211 @@
 #include "d3d11_context_imm.h"
 #include "d3d11_device.h"
 #include "d3d11_swapchain.h"
+#include "../dxvk/rtx_render/rtx_bridgemessagechannel.h"
+
+#ifndef D3D_OK
+#define D3D_OK S_OK
+#endif
 
 namespace dxvk {
+
+  // NV-DXVK start: App Controlled FSE
+  enum FSEState {
+    Acquire = 0,
+    Release,
+    Unchanged
+  };
+
+  static FSEState ProcessFullscreenExclusiveMessages(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    // Only required in bridge mode!
+    assert(env::isRemixBridgeActive());
+
+    FSEState state = FSEState::Unchanged;
+
+    switch (message) {
+    case WM_ACTIVATEAPP:
+    {
+      if (wParam) {
+        Logger::debug("FSE State (Acquire): ACTIVATEAPP = TRUE");
+        state = FSEState::Acquire;
+      } else {
+        Logger::debug("FSE State (Release): ACTIVATEAPP = FALSE");
+        state = FSEState::Release;
+      }
+      break;
+    }
+    case WM_WINDOWPOSCHANGING:
+    case WM_WINDOWPOSCHANGED:
+    {
+      WINDOWPOS* windowPos = (WINDOWPOS*) lParam;
+      if (0 == (windowPos->flags & SWP_NOZORDER)) {
+        HWND prev = GetWindow(windowPos->hwnd, GW_HWNDPREV);
+        bool zorderChanged = (prev != windowPos->hwndInsertAfter);
+        if (zorderChanged) {
+          Logger::debug("FSE State (Release): zorderChanged");
+          state = FSEState::Release;
+        }
+      }
+      break;
+    }
+    case WM_EXITMENULOOP:
+    case WM_SETFOCUS:
+    {
+      Logger::debug("FSE State (Acquire): EXITMENULOOP/SETFOCUS");
+      state = FSEState::Acquire;
+      break;
+    }
+    case WM_ENTERMENULOOP:
+    case WM_NCDESTROY:
+    case WM_KILLFOCUS:
+    {
+      Logger::debug("FSE State (Release): ENTERMENULOOP/KILLFOCUS/NCDESTROY");
+      state = FSEState::Release;
+      break;
+    }
+    }
+
+    return state;
+  }
+
+  struct D3D11WindowData {
+    bool unicode;
+    bool filter;
+    WNDPROC proc;
+    D3D11SwapChain* swapchain;
+  };
+
+  static dxvk::recursive_mutex g_windowProcMapMutex;
+  static std::unordered_map<HWND, D3D11WindowData> g_windowProcMap;
+
+  template <typename T, typename J, typename ... Args>
+  auto CallCharsetFunction(T unicode, J ascii, bool isUnicode, Args... args) {
+    return isUnicode
+      ? unicode(args...)
+      : ascii  (args...);
+  }
+
+  static bool isFullscreen(HWND window)
+  {
+    RECT a, b;
+    GetWindowRect(window, &a);
+    GetWindowRect(GetDesktopWindow(), &b);
+    return (a.left   == b.left  &&
+            a.top    == b.top   &&
+            a.right  == b.right &&
+            a.bottom == b.bottom);
+  }
+
+  class D3D11WindowMessageFilter {
+
+  public:
+    D3D11WindowMessageFilter(HWND window, bool filter = true)
+        : m_window(window) {
+      std::lock_guard lock(g_windowProcMapMutex);
+      auto it = g_windowProcMap.find(m_window);
+      m_filter = std::exchange(it->second.filter, filter);
+    }
+
+    ~D3D11WindowMessageFilter() {
+      std::lock_guard lock(g_windowProcMapMutex);
+      auto it = g_windowProcMap.find(m_window);
+      it->second.filter = m_filter;
+    }
+
+    D3D11WindowMessageFilter(const D3D11WindowMessageFilter &) = delete;
+    D3D11WindowMessageFilter &
+    operator=(const D3D11WindowMessageFilter &) = delete;
+
+  private:
+    HWND m_window;
+    bool m_filter;
+  }; // D3D11WindowMessageFilter
+
+  LRESULT CALLBACK D3D11WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+  LRESULT CALLBACK D3D11WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    D3D11WindowData windowData = {};
+    {
+      std::lock_guard lock(g_windowProcMapMutex);
+      auto it = g_windowProcMap.find(window);
+      if (it != g_windowProcMap.end())
+        windowData = it->second;
+      else
+        return 0;
+    }
+
+    bool unicode = windowData.proc
+      ? windowData.unicode
+      : IsWindowUnicode(window);
+
+    windowData.swapchain->getGUI()->wndProcHandler(window, message, wParam, lParam);
+    // XXX: isFullscreen is a hack for now until we refactor this onto non DESC1 swapchain descriptors
+    if (!isFullscreen(window) && env::isRemixBridgeActive()) {
+      FSEState state = ProcessFullscreenExclusiveMessages(window, message, wParam, lParam);
+
+      // Update FSE state
+      if (state == FSEState::Acquire) {
+        windowData.swapchain->AcquireFullscreenExclusive();
+      } else if (state == FSEState::Release) {
+        windowData.swapchain->ReleaseFullscreenExclusive();
+      }
+    }
+
+    if (windowData.proc) {
+      return CallCharsetFunction(CallWindowProcW, CallWindowProcA, unicode,
+                                 windowData.proc, window, message, wParam, lParam);
+    }
+
+    return 0;
+  }
+
+  void ResetWindowProc(HWND window) {
+    std::lock_guard lock(g_windowProcMapMutex);
+
+    auto it = g_windowProcMap.find(window);
+    if (it == g_windowProcMap.end())
+      return;
+
+    auto proc = reinterpret_cast<WNDPROC>(
+      CallCharsetFunction(GetWindowLongPtrW, GetWindowLongPtrA, it->second.unicode, window, GWLP_WNDPROC)
+    );
+
+    if (proc == D3D11WindowProc)
+      CallCharsetFunction(
+        SetWindowLongPtrW, SetWindowLongPtrA, it->second.unicode,
+          window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(it->second.proc));
+
+    g_windowProcMap.erase(window);
+  }
+
+  void HookWindowProc(HWND window, D3D11SwapChain* swapchain) {
+    std::lock_guard lock(g_windowProcMapMutex);
+
+    ResetWindowProc(window);
+
+    D3D11WindowData windowData;
+    windowData.unicode = IsWindowUnicode(window);
+    windowData.filter  = false;
+    windowData.proc = reinterpret_cast<WNDPROC>(
+      CallCharsetFunction(
+      SetWindowLongPtrW, SetWindowLongPtrA, windowData.unicode,
+        window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(D3D11WindowProc)));
+    windowData.swapchain = swapchain;
+    g_windowProcMap[window] = std::move(windowData);
+
+    // NV-DXVK start: App Controlled FSE
+    if (windowData.proc == nullptr) {
+      Logger::info(str::format("No winproc detected, initiating bridge message channel for: ", window));
+
+      if (BridgeMessageChannel::get().init(window, D3D11WindowProc)) {
+        // Send the initial state messages
+        swapchain->getGUI()->switchMenu(RtxOptions::Get()->showUI(), true);
+      } else {
+        Logger::err("Unable to init bridge message channel. FSE and input capture may not work!");
+      }
+    }
+    // NV-DXVK end
+  }
+  // NV-DXVK end
 
   static uint16_t MapGammaControlPoint(float x) {
     if (x < 0.0f) x = 0.0f;
@@ -31,6 +234,7 @@ namespace dxvk {
     CreateBackBuffer();
     CreateBlitter();
     CreateHud();
+    HookWindowProc(m_window, this);
   }
 
 
@@ -302,6 +506,9 @@ namespace dxvk {
 
       if (m_hud != nullptr)
         m_hud->render(m_context, info.format, info.imageExtent);
+
+      if (m_imgui != nullptr)
+        m_imgui->render(m_window, m_context, info.format, info.imageExtent);
       
       if (i + 1 >= SyncInterval)
         m_context->signal(m_frameLatencySignal, m_frameId);
@@ -379,7 +586,6 @@ namespace dxvk {
     if (m_desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
       m_frameLatencyEvent = CreateSemaphore(nullptr, m_frameLatency, DXGI_MAX_SWAP_CHAIN_BUFFERS, nullptr);
   }
-
 
   void D3D11SwapChain::CreatePresenter() {
     DxvkDeviceQueue graphicsQueue = m_device->queues().graphics;
@@ -549,6 +755,7 @@ namespace dxvk {
 
   void D3D11SwapChain::CreateHud() {
     m_hud = hud::Hud::createHud(m_device);
+    m_imgui = ImGUI::createGUI(m_device, m_window);
 
     if (m_hud != nullptr)
       m_hud->addItem<hud::HudClientApiItem>("api", 1, GetApiName());
@@ -653,6 +860,101 @@ namespace dxvk {
       : VK_FULL_SCREEN_EXCLUSIVE_DISALLOWED_EXT;
   }
 
+  HRESULT D3D11SwapChain::RestoreDisplayMode(HMONITOR hMonitor) {
+    if (hMonitor == nullptr)
+      return  (!D3D_OK);
+    
+    if (!RestoreMonitorDisplayMode())
+      return (!D3D_OK);
+    m_presenter->setFrameRateLimiterRefreshRate(0.0);
+    return D3D_OK;
+  }
+
+ HRESULT D3D11SwapChain::EnterFullscreenMode(Com<D3D11DXGIDevice, false> *m_dxgiDevice) {    
+    // Find a display mode that matches what we need
+    ::GetWindowRect(m_window, &m_windowState.rect);
+#if 0 
+    if (FAILED(ChangeDisplayMode(pPresentParams, pFullscreenDisplayMode))) {
+      Logger::err("D3D11: EnterFullscreenMode: Failed to change display mode");
+      ieturn (!D3D_OK);
+    }
+#endif
+
+    // Testing shows we shouldn't hook WM_NCCALCSIZE but we shouldn't change
+    // windows style either.
+    //
+    // Some games restore window styles after we have changed it, so hooking is
+    // also required. Doing it will allow us to create fullscreen windows
+    // regardless of their style and it also appears to work on Windows.
+    HookWindowProc(m_window, this);
+
+   if(!env::isRemixBridgeActive()) {
+      D3D11WindowMessageFilter filter(m_window);
+
+      // Change the window flags to remove the decoration etc.
+      LONG style = ::GetWindowLong(m_window, GWL_STYLE);
+      LONG exstyle = ::GetWindowLong(m_window, GWL_EXSTYLE);
+
+      m_windowState.style = style;
+      m_windowState.exstyle = exstyle;
+
+      style &= ~WS_OVERLAPPEDWINDOW;
+      exstyle &= ~WS_EX_OVERLAPPEDWINDOW;
+      
+      ::SetWindowLong(m_window, GWL_STYLE, style);
+      ::SetWindowLong(m_window, GWL_EXSTYLE, exstyle);
+
+      // Move the window so that it covers the entire output    
+      RECT rect;
+      GetMonitorRect(GetDefaultMonitor(), &rect);
+
+      ::SetWindowPos(m_window, HWND_TOPMOST,
+        rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+        SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+    }
+    
+    m_monitor = GetDefaultMonitor();
+    m_presenter->acquireFullscreenExclusive();
+
+    return D3D_OK;
+  }
+  
+  
+  HRESULT D3D11SwapChain::LeaveFullscreenMode() {
+    if (!IsWindow(m_window))
+      return (!D3D_OK);
+    
+    if (FAILED(RestoreDisplayMode(m_monitor)))
+      Logger::warn("D3D11: LeaveFullscreenMode: Failed to restore display mode");
+    
+    m_monitor = nullptr;
+
+    ResetWindowProc(m_window);
+    
+    if (!env::isRemixBridgeActive()) {
+      // Only restore the window style if the application hasn't
+      // changed them. This is in line with what native D3D9 does.
+      LONG curStyle = ::GetWindowLongW(m_window, GWL_STYLE) & ~WS_VISIBLE;
+      LONG curExstyle = ::GetWindowLongW(m_window, GWL_EXSTYLE) & ~WS_EX_TOPMOST;
+
+      if (curStyle == (m_windowState.style & ~(WS_VISIBLE | WS_OVERLAPPEDWINDOW))
+       && curExstyle == (m_windowState.exstyle & ~(WS_EX_TOPMOST | WS_EX_OVERLAPPEDWINDOW))) {
+        ::SetWindowLongW(m_window, GWL_STYLE, m_windowState.style);
+        ::SetWindowLongW(m_window, GWL_EXSTYLE, m_windowState.exstyle);
+      }
+
+      // Restore window position and apply the style
+      const RECT rect = m_windowState.rect;
+
+      ::SetWindowPos(m_window, 0,
+        rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+        SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+    }
+
+    m_presenter->releaseFullscreenExclusive();
+    
+    return D3D_OK;
+  }
 
   std::string D3D11SwapChain::GetApiName() const {
     Com<IDXGIDXVKDevice> device;

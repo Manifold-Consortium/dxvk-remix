@@ -202,7 +202,7 @@ namespace dxvk {
 #ifndef _DEBUG
   const bool enableValidationLayers = false;
 #else
-  const bool enableValidationLayers = true;
+  const bool enableValidationLayers = false;
 #endif
   // NV-DXVK end
 

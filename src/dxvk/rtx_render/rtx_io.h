@@ -113,7 +113,7 @@ namespace dxvk {
 
     bool flush(bool async);
 
-    RTX_OPTION("rtx.io", bool, enabled, false, "");
+    RTX_OPTION("rtx.io", bool, enabled, true, "");
 
   private:
     static void OnEvent(uint32_t event, const void* data, void* userData);
