@@ -24,7 +24,13 @@
 #include <nvapi.h>
 
 namespace dxvk {
-  std::unique_ptr<RtxOptions> RtxOptions::pInstance = nullptr;
+  struct OpacityMicromap RtxOptions::opacityMicromap {};
+  const VirtualKeys& RtxOptions::m_remixMenuKeyBinds = { VirtualKey{VK_MENU}, VirtualKey{'X'} };
+  std::unique_ptr<RtxOptions> RtxOptions::pInstance  = nullptr;
+   
+  const VirtualKeys& RtxOptions::remixMenuKeyBinds() {
+    return m_remixMenuKeyBinds; 
+  }
 
   void RtxOptions::updateUpscalerFromDlssPreset() {
     switch (dlssPreset()) {
