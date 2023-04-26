@@ -129,6 +129,13 @@ namespace dxvk {
     World
   };
 
+  typedef struct OpacityMicromap {
+    friend class RtxOptions;
+    friend class ImGUI;
+    bool isSupported = false;
+    RTX_OPTION_ENV("rtx.opacityMicromap", bool, enable, true, "DXVK_ENABLE_OPACITY_MICROMAP", "");
+  } OpacityMicromap;
+
   class RtxOptions {
     friend class ImGUI; // <-- we want to modify these values directly.
     friend class ImGuiSplash; // <-- we want to modify these values directly.
@@ -245,10 +252,9 @@ namespace dxvk {
     RTX_OPTION("rtx", bool, showUICursor, false, "");
     RTX_OPTION_FLAG("rtx", bool, blockInputToGameInUI, true, RtxOptionFlags::NoSave, "");
     RTX_OPTION("rtx", bool, hideSplashMessage, false, "");
-  private:
-    VirtualKeys m_remixMenuKeyBinds;
   public:
-    const VirtualKeys& remixMenuKeyBinds() const { return m_remixMenuKeyBinds; }
+    static const VirtualKeys &m_remixMenuKeyBinds;
+    static const VirtualKeys& remixMenuKeyBinds();
 
     RTX_OPTION("rtx", DLSSProfile, qualityDLSS, DLSSProfile::Auto, "Adjusts internal DLSS scaling factor, trades quality for performance.");
     // Note: All ray tracing modes depend on the rtx.raytraceModePreset option as they may be overridden by automatic defaults for a specific vendor if the preset is set to Auto. Set
@@ -438,14 +444,6 @@ namespace dxvk {
     RTX_OPTION("rtx", int32_t, presentThrottleDelay, 16, "[ms]");
     RTX_OPTION_ENV("rtx", bool, validateCPUIndexData, false, "DXVK_VALIDATE_CPU_INDEX_DATA", "");
 
-    struct OpacityMicromap
-    {
-      friend class RtxOptions;
-      friend class ImGUI;
-      bool isSupported = false;
-      RTX_OPTION_ENV("rtx.opacityMicromap", bool, enable, true, "DXVK_ENABLE_OPACITY_MICROMAP", "");
-    } opacityMicromap;
-
     RTX_OPTION("rtx", ReflexMode, reflexMode, ReflexMode::LowLatency, "Reflex mode selection, enabling it helps minimize input latency, boost mode may further reduce latency by boosting GPU clocks in CPU-bound cases."); // default to low-latency (not boost)
     RTX_OPTION_FLAG("rtx", bool, isReflexSupported, true, RtxOptionFlags::NoSave, "");// default to true, we will do a compat check during init and disable if not supported
 
@@ -533,7 +531,7 @@ namespace dxvk {
     RTX_OPTION("rtx", uint32_t, applicationId, 102100511, "Used for DLSS.");
 
     static std::unique_ptr<RtxOptions> pInstance;
-    RtxOptions() { }
+    RtxOptions() { };
 
     // Note: Should be called whenever the min/max stability history values are changed.
     // Ideally would be done through a setter function but ImGui needs direct access to the original options with how we currently have it set up.
@@ -712,9 +710,6 @@ namespace dxvk {
 
       // Cache this so we don't change during runtime.
       initialSkipReplacementTextureMipMapLevel = skipReplacementTextureMipMapLevel();
-
-      const VirtualKeys& kDefaultRemixMenuKeyBinds { VirtualKey{VK_MENU},VirtualKey{'X'} };
-      m_remixMenuKeyBinds = options.getOption<VirtualKeys>("rtx.remixMenuKeyBinds", kDefaultRemixMenuKeyBinds);
 
       GeometryHashGenerationRule = createRule("Geometry generation", geometryGenerationHashRuleString());
       GeometryAssetHashRule = createRule("Geometry asset", geometryAssetHashRuleString());
@@ -1021,14 +1016,10 @@ namespace dxvk {
     uint getInstanceOverrideInstanceIdxRange() { return instanceOverrideInstanceIdxRange(); }
     bool getInstanceOverrideSelectedPrintMaterialHash() { return instanceOverrideSelectedInstancePrintMaterialHash(); }
     
-    // bool getIsOpacityMicromapSupported() const { return opacityMicromap.isSupported; }
-    bool getIsOpacityMicromapSupported() const { return false; }
-    void setIsOpacityMicromapSupported(bool enabled) { }
-    // XXX: Force disable as *this will not be valid 
-    bool getEnableOpacityMicromap() const {
-      // return (opacityMicromap.enable() && opacityMicromap.isSupported);
-      return false;
-    }
+    static struct OpacityMicromap opacityMicromap;
+    bool getIsOpacityMicromapSupported() const { return opacityMicromap.isSupported; };
+    void setIsOpacityMicromapSupported(bool enabled) { opacityMicromap.isSupported = enabled; };
+    bool getEnableOpacityMicromap() const { return opacityMicromap.enable() && opacityMicromap.isSupported; };
     void setEnableOpacityMicromap(bool enabled) { opacityMicromap.enableRef() = enabled; }
 
     bool getEnableAnyReplacements() { return enableReplacementAssets() && (enableReplacementLights() || enableReplacementMeshes() || enableReplacementMaterials()); }
