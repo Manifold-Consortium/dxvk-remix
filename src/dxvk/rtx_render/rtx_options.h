@@ -171,6 +171,8 @@ namespace dxvk {
     
   public:
 #ifdef REMIX_DEVELOPMENT
+    // DXGI/D3D11 changes by manifold
+    RTX_OPTION_ENV("rtx", bool,  enableManifoldExperimental, true, "DXVK_ENABLE_MANIFOLD_EXPERIMENTAL", "");
     // Note, this is currently a debug option we don't want to support in shipping config
     RTX_OPTION_ENV("rtx", bool,  enableRaytracing, false, "DXVK_ENABLE_RAYTRACING", "");
 #else
