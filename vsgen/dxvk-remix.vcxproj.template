@@ -15,7 +15,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup>
-      <ReadOnlyProject>true</ReadOnlyProject>
+      <ReadOnlyProject>false</ReadOnlyProject>
   </PropertyGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

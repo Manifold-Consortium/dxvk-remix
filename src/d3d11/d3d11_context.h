@@ -21,6 +21,8 @@ namespace dxvk {
     friend class D3D11DeviceContextExt;
     // Needed in order to call EmitCs for pushing markers
     friend class D3D11UserDefinedAnnotation;
+    friend class  D3D11SwapChain;
+    friend struct D3D11Rtx;
   public:
     
     D3D11DeviceContext(

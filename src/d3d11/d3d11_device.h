@@ -23,6 +23,7 @@
 #include "d3d11_shader.h"
 #include "d3d11_state.h"
 #include "d3d11_util.h"
+#include "d3d11_rtx.h"
 
 namespace dxvk {
   class DxgiAdapter;
@@ -39,6 +40,11 @@ namespace dxvk {
   class D3D11Texture1D;
   class D3D11Texture2D;
   class D3D11Texture3D;
+
+  struct D3D11BufferSlice {
+    DxvkBufferSlice slice = {};
+    void*           mapPtr = nullptr;
+  };
   
   /**
    * \brief D3D11 device implementation
@@ -429,15 +435,17 @@ namespace dxvk {
     static DxvkDeviceFeatures GetDeviceFeatures(
       const Rc<DxvkAdapter>&  adapter,
             D3D_FEATURE_LEVEL featureLevel);
-    
-  private:
-    
+
+  const Rc<DxvkDevice>              m_dxvkDevice;
+  D3D11Rtx                          m_rtx;
+  DxvkCsThread                      m_csThread;
+  private:    
     IDXGIObject*                    m_container;
 
     D3D_FEATURE_LEVEL               m_featureLevel;
     UINT                            m_featureFlags;
     
-    const Rc<DxvkDevice>            m_dxvkDevice;
+
     const Rc<DxvkAdapter>           m_dxvkAdapter;
     
     const DXGIVkFormatTable         m_d3d11Formats;

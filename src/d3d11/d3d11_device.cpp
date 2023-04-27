@@ -40,10 +40,13 @@ namespace dxvk {
     m_dxvkAdapter   (m_dxvkDevice->adapter()),
     m_d3d11Formats  (m_dxvkAdapter),
     m_d3d11Options  (m_dxvkDevice->instance()->config(), m_dxvkDevice),
-    m_dxbcOptions   (m_dxvkDevice, m_d3d11Options) {
-    m_initializer = new D3D11Initializer(this);
-    m_context     = new D3D11ImmediateContext(this, m_dxvkDevice);
-    m_d3d10Device = new D3D10Device(this, m_context.ptr());
+    m_dxbcOptions   (m_dxvkDevice, m_d3d11Options),
+    m_csThread      (m_dxvkDevice->createRtxContext() ),
+    m_rtx(this) {
+      m_initializer = new D3D11Initializer(this);
+      m_context     = new D3D11ImmediateContext(this, m_dxvkDevice);
+      m_d3d10Device = new D3D10Device(this, m_context.ptr());
+      m_rtx.Initialize();
   }
   
   

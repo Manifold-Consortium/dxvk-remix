@@ -137,8 +137,11 @@ namespace dxvk {
   RtxContext::RtxContext(const Rc<DxvkDevice>& device)
     : DxvkContext(device)
     , m_captureStateForRTX(true)
-    , m_scratchAllocator(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR)
-    , m_exporter(new AssetExporter()) {
+    , m_scratchAllocator(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR),
+      m_exporter()
+    {
+
+    m_exporter = std::make_unique<AssetExporter>();
     // Note: This may not be the best place to check for these features/properties, they ideally would be specified as
     // required upfront, but there's no good place to do that for this RTX extension (the D3D9 stuff does it before device
     // creation), so instead we just check for what is needed.
@@ -2142,6 +2145,9 @@ namespace dxvk {
       return;
 
     auto skyprobeView = getResourceManager().getSkyProbe(Rc<DxvkContext>(this));
+    if (!skyprobeView.isValid()) {
+      return;
+    }
 
     const auto skyprobeExt = skyprobeView.image->info().extent;
     const uint32_t equatorLength = std::min(skyprobeExt.width * 4, 16384u);

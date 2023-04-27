@@ -399,6 +399,10 @@ namespace dxvk {
           UINT                      SyncInterval,
           UINT                      PresentFlags,
     const DXGI_PRESENT_PARAMETERS*  pPresentParameters) {
+    // NV-DXVK start: Restart RTX capture on the new frame
+    m_parent->m_rtx.EndFrame();
+    // NV-DXVK end
+
     auto options = m_parent->GetOptions();
 
     if (options->syncInterval >= 0)
