@@ -63,7 +63,7 @@ namespace dxvk {
     m_globalBindlessDescSetIdx = nextIdx();
 
     // Textures
-    {
+    if (!rtTextures.empty()) {
       std::vector<VkDescriptorImageInfo> imageInfo(rtTextures.size());
 
       uint32_t idx = 0;
@@ -99,7 +99,7 @@ namespace dxvk {
     }
 
     // Buffers
-    {
+    if (!rtBuffers.empty()) {
       uint32_t idx = 0;
       std::vector<VkDescriptorBufferInfo> bufferInfo(rtBuffers.size());
       for (auto&& bufRef : rtBuffers) {
