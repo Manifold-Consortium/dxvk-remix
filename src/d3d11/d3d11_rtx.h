@@ -5,6 +5,7 @@
 #include "../util/util_threadpool.h"
 #include "d3d11_rtx_caps.h"
 #include "d3d11_state.h"
+#include "d3d11_context.h"
 #include <vector>
 
 namespace dxvk {
@@ -73,6 +74,7 @@ private:
 
   DxvkStagingDataAlloc m_rtStagingData;
   D3D11Device *m_parent;
+  D3D11DeviceContext *m_dctx;
 
   DXGI_SWAP_CHAIN_DESC1 m_activePresentParams;
 
