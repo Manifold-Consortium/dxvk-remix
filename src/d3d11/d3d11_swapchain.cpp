@@ -414,6 +414,15 @@ namespace dxvk {
       m_dirty |= vsync != m_vsync;
       m_vsync  = vsync;
     }
+    // NV-DXVK start: Reflex integration
+    if (RtxOptions::Get()->forceVsyncOff()) {
+      m_presenter->setFrameRateLimit(0.0);
+      m_presenter->setFrameRateLimiterRefreshRate(0.0);
+      SyncInterval = 0;
+      m_vsync = false;
+      m_dirty = false;
+    }
+    // NV-DXVK end
 
     if (m_presenter == nullptr)
       CreatePresenter();
