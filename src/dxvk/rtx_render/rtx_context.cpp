@@ -1064,6 +1064,9 @@ namespace dxvk {
 
     spillRenderPass(false);
 
+    if (m_drawCallQueue.empty())
+      return;
+
     for (auto& drawCallState : m_drawCallQueue) {
       if (drawCallState.finalizeGeometryHashes() &&
           (!RtxOptions::Get()->calculateMeshBoundingBox() || drawCallState.finalizeGeometryBoundingBox())) {
