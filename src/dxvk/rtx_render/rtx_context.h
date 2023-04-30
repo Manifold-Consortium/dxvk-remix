@@ -304,7 +304,7 @@ namespace dxvk {
 
     std::vector<ThumbnailRequest> m_pendingThumbnailRequests;
 
-    std::vector<DrawCallState> m_drawCallQueue;
+    static std::vector<DrawCallState> m_drawCallQueue;
 
     DxvkRaytracingInstanceState m_rtState;
   };

@@ -64,6 +64,8 @@ namespace dxvk {
 
   Metrics Metrics::s_instance;
 
+  std::vector<DrawCallState> RtxContext::m_drawCallQueue {};
+
   void RtxContext::takeScreenshot(std::string imageName, Rc<DxvkImage> image) {
     // NOTE: Improve this, I'd like all textures from the same frame to have the same time code...  Currently sampling the time on each "dump op" results in different timecodes.
     auto t = std::time(nullptr);
