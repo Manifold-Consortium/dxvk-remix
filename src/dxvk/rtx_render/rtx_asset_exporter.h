@@ -25,8 +25,6 @@
 #include "../util/rc/util_rc_ptr.h"
 #include <atomic>
 #include <future>
-#include <mutex>
-
 
 namespace dxvk {
   /// Filename can be KTX or DDS files
@@ -37,12 +35,12 @@ namespace dxvk {
   class DxvkBufferSlice;
 
   class AssetExporter {
-    Rc<sync::Fence> m_readbackSignal = nullptr;
-    std::atomic<uint64_t> m_signalValue = 1;
-    dxvk::mutex m_readbackSignalMutex;
-    std::atomic<uint64_t> m_numExportsInFlight = 0;
-
   public:
+    static std::atomic<uint64_t>  m_signalValue;
+    static std::atomic<uint64_t>  m_numExportsInFlight;
+    static Rc<sync::Fence>        m_readbackSignal;
+    static dxvk::mutex            m_readbackSignalMutex;
+    AssetExporter() = default;
     void waitForAllExportsToComplete(const float numSecsToWait = 10);
     void exportImage(Rc<DxvkDevice> device, Rc<RtxContext> ctx, const std::string& filename, Rc<DxvkImage> image, bool thumbnail = false);
     using BufferCallback = std::function<void(Rc<DxvkBuffer>)>;

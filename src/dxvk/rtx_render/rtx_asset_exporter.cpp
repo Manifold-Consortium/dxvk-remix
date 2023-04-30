@@ -93,6 +93,11 @@ namespace {
 
 namespace dxvk {
 
+  dxvk::mutex            AssetExporter::m_readbackSignalMutex;
+  Rc<sync::Fence>        AssetExporter::m_readbackSignal = nullptr;
+  std::atomic<uint64_t>  AssetExporter::m_signalValue = 1;
+  std::atomic<uint64_t>  AssetExporter::m_numExportsInFlight = 0;
+
   void AssetExporter::waitForAllExportsToComplete(const float numSecsToWait) {
 
     if (m_numExportsInFlight > 0) {
