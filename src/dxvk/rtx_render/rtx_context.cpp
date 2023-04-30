@@ -143,6 +143,8 @@ namespace dxvk {
     , m_scratchAllocator(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR)
     , m_exporter(new AssetExporter())
   {
+    m_experimental = RtxOptions::Get()->enableManifoldExperimental();
+
     auto &feat = m_device->features();
     auto &extn = m_device->extensions();
     auto &prop = m_device->properties();
@@ -385,7 +387,7 @@ namespace dxvk {
       getSceneManager().prepareSceneData(this, m_cmd, m_execBarriers, frameTimeSecs);
       
       // If we really don't have any RT to do, just bail early (could be UI/menus rendering)
-      if (getSceneManager().getSurfaceBuffer() != nullptr) {
+      if (getSceneManager().getSurfaceBuffer() != nullptr || (m_experimental)) {
 
         auto logRenderPassRaytraceModeRayQuery = [=](const char* renderPassName, auto mode) {
           switch (mode) {
@@ -439,9 +441,35 @@ namespace dxvk {
         // Allocate/release resources based on each pass's status
         getResourceManager().onFrameBegin(this, setDownscaleExtent(targetImage->info().extent), targetImage->info().extent);
 
+        // Create primary rtOutput
         Resources::RaytracingOutput& rtOutput = getResourceManager().getRaytracingOutput();
 
-        // updateReflexConstants();
+        updateReflexConstants();
+
+        if (m_experimental) {
+
+          dispatchTemporalAA(rtOutput);
+
+          // Set up output src
+          Rc<DxvkImage> srcImage = rtOutput.m_finalOutput.image;
+
+          // Debug view overrides
+          dispatchDebugView(srcImage, rtOutput, captureScreenImage);
+          {
+            ScopedGpuProfileZone(this, "Blit to Game");
+
+            Rc<DxvkImage> dstImage = targetImage;
+
+            // Note: Nearest neighbor filtering used to give a precise view of debug buffer when DLSS is used. Otherwise the resolution should match 1:1 and
+            // this should be the same as using bilinear filtering.
+            blitImageHelper(srcImage, dstImage, VkFilter::VK_FILTER_NEAREST);
+          }
+
+          getSceneManager().onFrameEnd(this);
+          rtOutput.onFrameEnd();
+          m_previousInjectRtxHadScene = true;
+          goto endinject;
+        }
 
         // Generate ray tracing constant buffer
         updateRaytraceArgsConstantBuffer(m_cmd, rtOutput, frameTimeSecs);
@@ -556,14 +584,15 @@ namespace dxvk {
         getSceneManager().onFrameEnd(this);
 
         rtOutput.onFrameEnd();
-      }
+      } // end ((getSceneManager().getSurfaceBuffer() != nullptr || (m_experimental)))
 
       m_previousInjectRtxHadScene = true;
     } else {
       getSceneManager().clear(this, m_previousInjectRtxHadScene);
       m_previousInjectRtxHadScene = false;
-    }
+    } // end (isRaytracingEnabled && isCameraValid)
 
+endinject:
     // Bake sky probe if any
     bakeSkyProbe();
 
@@ -1070,10 +1099,17 @@ namespace dxvk {
     if (m_drawCallQueue.empty())
       return;
 
-    for (auto& drawCallState : m_drawCallQueue) {
-      if (drawCallState.finalizeGeometryHashes() &&
-          (!RtxOptions::Get()->calculateMeshBoundingBox() || drawCallState.finalizeGeometryBoundingBox())) {
-        getSceneManager().submitDrawState(this, m_cmd, drawCallState);
+    if (m_experimental) {
+      for (auto& drawCallState : m_drawCallQueue) {
+        if (&drawCallState != nullptr)
+          getSceneManager().submitDrawState(this, m_cmd, drawCallState);
+      }
+    } else {
+      for (auto& drawCallState : m_drawCallQueue) {
+        if (drawCallState.finalizeGeometryHashes() &&
+            (!RtxOptions::Get()->calculateMeshBoundingBox() || drawCallState.finalizeGeometryBoundingBox())) {
+          getSceneManager().submitDrawState(this, m_cmd, drawCallState);
+        }
       }
     }
 

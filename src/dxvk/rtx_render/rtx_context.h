@@ -247,6 +247,8 @@ namespace dxvk {
     void enableRtxCapture();
     void disableRtxCapture();
 
+    bool m_experimental = false;
+
     uint32_t m_frameLastInjected = kInvalidFrameIndex;
     bool m_captureStateForRTX = true;
 
