@@ -140,39 +140,40 @@ namespace dxvk {
   RtxContext::RtxContext(const Rc<DxvkDevice>& device)
     : DxvkContext(device)
     , m_captureStateForRTX(true)
-    , m_scratchAllocator(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR),
-      m_exporter()
-    {
-
-    m_exporter = std::make_unique<AssetExporter>();
+    , m_scratchAllocator(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR)
+    , m_exporter(new AssetExporter())
+  {
+    auto &feat = m_device->features();
+    auto &extn = m_device->extensions();
+    auto &prop = m_device->properties();
     // Note: This may not be the best place to check for these features/properties, they ideally would be specified as
     // required upfront, but there's no good place to do that for this RTX extension (the D3D9 stuff does it before device
     // creation), so instead we just check for what is needed.
     // Note: When adding new extensions update DxvkAdapter::createDevice as it is what brings these features over.
-    m_rayTracingSupported = (m_device->features().core.features.shaderInt16 &&
-                             m_device->features().vulkan11Features.storageBuffer16BitAccess &&
-                             m_device->features().vulkan11Features.uniformAndStorageBuffer16BitAccess &&
-                             m_device->features().vulkan12Features.bufferDeviceAddress &&
-                             m_device->features().vulkan12Features.descriptorIndexing &&
-                             m_device->features().vulkan12Features.runtimeDescriptorArray &&
-                             m_device->features().vulkan12Features.descriptorBindingPartiallyBound &&
-                             m_device->features().vulkan12Features.shaderStorageBufferArrayNonUniformIndexing &&
-                             m_device->features().vulkan12Features.shaderSampledImageArrayNonUniformIndexing &&
-                             m_device->features().vulkan12Features.descriptorBindingVariableDescriptorCount &&
-                             m_device->features().vulkan12Features.shaderInt8 &&
-                             m_device->features().vulkan12Features.shaderFloat16 &&
-                             m_device->features().vulkan12Features.uniformAndStorageBuffer8BitAccess &&
-                             m_device->features().khrAccelerationStructureFeatures.accelerationStructure &&
-                             m_device->features().khrRayQueryFeatures.rayQuery &&
-                             m_device->features().khrDeviceRayTracingPipelineFeatures.rayTracingPipeline &&
-                             m_device->extensions().khrShaderInt8Float16Types &&
-                             m_device->properties().coreSubgroup.subgroupSize >= 1 &&
-                             m_device->properties().coreSubgroup.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT &&
-                             m_device->properties().coreSubgroup.supportedOperations & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT);
+    m_rayTracingSupported = (feat.core.features.shaderInt16 &&
+                             feat.vulkan11Features.storageBuffer16BitAccess &&
+                             feat.vulkan11Features.uniformAndStorageBuffer16BitAccess &&
+                             feat.vulkan12Features.bufferDeviceAddress &&
+                             feat.vulkan12Features.descriptorIndexing &&
+                             feat.vulkan12Features.runtimeDescriptorArray &&
+                             feat.vulkan12Features.descriptorBindingPartiallyBound &&
+                             feat.vulkan12Features.shaderStorageBufferArrayNonUniformIndexing &&
+                             feat.vulkan12Features.shaderSampledImageArrayNonUniformIndexing &&
+                             feat.vulkan12Features.descriptorBindingVariableDescriptorCount &&
+                             feat.vulkan12Features.shaderInt8 &&
+                             feat.vulkan12Features.shaderFloat16 &&
+                             feat.vulkan12Features.uniformAndStorageBuffer8BitAccess &&
+                             feat.khrAccelerationStructureFeatures.accelerationStructure &&
+                             feat.khrRayQueryFeatures.rayQuery &&
+                             feat.khrDeviceRayTracingPipelineFeatures.rayTracingPipeline &&
+                             extn.khrShaderInt8Float16Types &&
+                             prop.coreSubgroup.subgroupSize >= 1 &&
+                             prop.coreSubgroup.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT &&
+                             prop.coreSubgroup.supportedOperations & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT);
 
-    m_dlssSupported = (m_device->extensions().nvxBinaryImport &&
-                       m_device->extensions().nvxImageViewHandle &&
-                       m_device->extensions().khrPushDescriptor);
+    m_dlssSupported = (extn.nvxBinaryImport &&
+                       extn.nvxImageViewHandle &&
+                       extn.khrPushDescriptor);
 
 
     if (env::getEnvVar("DXVK_DUMP_SCREENSHOT_FRAME") != "") {
@@ -192,7 +193,6 @@ namespace dxvk {
     checkOpacityMicromapSupport();
     checkShaderExecutionReorderingSupport();
     reportCpuSimdSupport();
-
   }
 
   RtxContext::~RtxContext() {
