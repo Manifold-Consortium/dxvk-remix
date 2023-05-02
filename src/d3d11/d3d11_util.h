@@ -24,6 +24,12 @@ namespace dxvk {
     
   VkSamplerAddressMode DecodeAddressMode(
           D3D11_TEXTURE_ADDRESS_MODE  mode);
+
+  VkIndexType DecodeIndexType(DXGI_FORMAT Format);
+
+  VkCullModeFlags DecodeCullMode(D3D11_CULL_MODE Mode);
+
+  VkPrimitiveTopology DecodeTopology(D3D11_PRIMITIVE_TOPOLOGY d3dTopology);
   
   VkCompareOp DecodeCompareOp(
           D3D11_COMPARISON_FUNC     Mode);
