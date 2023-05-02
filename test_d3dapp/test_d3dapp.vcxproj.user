@@ -4,5 +4,8 @@
     <LocalDebuggerDebuggerType>NativeOnly</LocalDebuggerDebuggerType>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
     <GPURefDebuggerBreakOnAllThreads>GPURefBreakForCPUThread</GPURefDebuggerBreakOnAllThreads>
+    <LocalDebuggerEnvironment>DXVK_RTX_CAPTURE_ENABLE_ON_FRAME=1
+$(LocalDebuggerEnvironment)</LocalDebuggerEnvironment>
+    <LocalDebuggerCommandArguments>1280 720</LocalDebuggerCommandArguments>
   </PropertyGroup>
 </Project>
