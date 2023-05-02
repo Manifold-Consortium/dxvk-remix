@@ -6,7 +6,7 @@ namespace dxvk::caps {
 
   constexpr uint32_t MaxClipPlanes                = 6;
   constexpr uint32_t MaxSamplers                  = 16;
-  constexpr uint32_t MaxStreams                   = 16;
+  constexpr uint32_t MaxStreams                   = 32;
   constexpr uint32_t MaxSimultaneousTextures      = 8;
   constexpr uint32_t MaxTextureBlendStages        = MaxSimultaneousTextures;
   constexpr uint32_t MaxSimultaneousRenderTargets = 8; // TEMP
