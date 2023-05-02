@@ -308,15 +308,92 @@ void D3D11Rtx::internalPrepareDraw(
   });
 }
 
+uint32_t D3D11Rtx::processTextures() {
+  // We don't support full legacy materials in fixed function mode yet..
+  // This implementation finds the most relevant textures bound from the
+  // following criteria:
+  //   - Texture actually bound (and used) by stage
+  //   - First N textures bound to a specific texcoord index
+  //   - Prefer lowest texcoord index
+  // In non-fixed function (shaders), take the first N textures.
+
+  // Currently we only support 2 textures
+  constexpr uint32_t kMaxTextureBindings = 2;
+  constexpr uint32_t NumTexcoordBins = kMaxTextureBindings;
+
+  // Build a mapping of texcoord indices to stage
+  constexpr uint8_t kInvalidStage = 0xFF;
+  uint8_t texcoordIndexToStage[NumTexcoordBins] {};
+
+  // Find the ideal textures for raytracing, initialize the data to invalid (out of range) to unbind unused textures
+  uint32_t texSlotsForRT[kMaxTextureBindings] {};
+  memset(&texSlotsForRT[0], 0xFFFFffff, sizeof(texSlotsForRT));
+
+  // Create a new render target view for each texture that we want to capture.
+  ID3D11RenderTargetView* renderTargetViews[1] = { nullptr };
+  m_dctx->OMGetRenderTargets(1, renderTargetViews, nullptr);
+
+#ifdef SRV
+  // Create a new shader resource view for each texture that we want to capture.
+  ID3D11Resource* resource = nullptr;
+  ID3D11ShaderResourceView* shaderResourceViews[1] = { nullptr };
+  renderTargetViews[0]->GetResource(&resource);
+  m_parent->CreateShaderResourceView(resource, nullptr, &shaderResourceViews[0]);
+  resource->Release();
+
+  // XXX: Do we even need a shader resource if we can 
+  if (shaderResourceViews[0] != nullptr)
+    // Bind the shader resource views to the appropriate texture slots in your shader.
+    // XXX
+    m_dctx->PSSetShaderResources(0, 1, shaderResourceViews);
+#endif
+
+  // Set the render target views and shader resource views to the appropriate slots in the pipeline.
+  ID3D11UnorderedAccessView* uavs[1] = { nullptr };
+  m_dctx->OMSetRenderTargetsAndUnorderedAccessViews(1, renderTargetViews, nullptr, 0, 1, uavs, nullptr);
+
+  // Create a staging texture.
+  ID3D11Texture2D* stagingTexture = nullptr;
+  D3D11_TEXTURE2D_DESC desc;
+  renderTargetViews[0]->GetResource((ID3D11Resource**)&stagingTexture);
+  stagingTexture->GetDesc(&desc);
+  desc.BindFlags = 0;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.MiscFlags = 0;
+  ID3D11Texture2D* texture;
+  m_parent->CreateTexture2D(&desc, nullptr, &texture);
+
+  // Copy the texture to the staging texture.
+  m_dctx->CopyResource(texture, stagingTexture);
+
+  // Map the staging texture and read its contents.
+  D3D11_MAPPED_SUBRESOURCE mappedResource;
+  m_dctx->Map(texture, 0, D3D11_MAP_READ, 0, &mappedResource);
+  // TODO: Happy fun time here
+  m_dctx->Unmap(texture, 0);
+
+  // Release the resources.
+  texture->Release();
+  stagingTexture->Release();
+  renderTargetViews[0]->Release();
+#ifdef SRV
+  if (shaderResourceViews[0] != nullptr)
+    shaderResourceViews[0]->Release();
+#endif
+
+  return 0;
+}
 
 uint32_t D3D11Rtx::processRenderState() {
-  return uint32_t();
+  return processTextures();
 }
 
 void D3D11Rtx::EndFrame() {
   // Inform backend of end-frame
-  m_dctx->EmitCs([](DxvkContext* ctx) { static_cast<RtxContext*>(ctx)->endFrame(); });
-
+  m_dctx->EmitCs([](DxvkContext* ctx) {
+    static_cast<RtxContext*>(ctx)->endFrame();
+  });
   // Reset for the next frame
   m_rtxInjectTriggered = false;
   m_drawCallID = 0;
