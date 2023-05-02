@@ -51,7 +51,7 @@ Write-Host "Using Visual Studio installation at: ${vsPath}" -ForegroundColor Yel
 #
 # Load VC vars
 Push-Location "${vsPath}\VC\Auxiliary\Build"
-cmd /c "vcvarsall.bat x64&set" |
+cmd /c ".\vcvars64.bat x64&set" |
 ForEach-Object {
   If ($_ -match "=") {
 	$v = $_.split("="); Set-Item -Force -Path "ENV:\$($v[0])" -Value "$($v[1])"
