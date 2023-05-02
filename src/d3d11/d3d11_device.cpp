@@ -82,6 +82,11 @@ namespace dxvk {
       return E_INVALIDARG;
     
     D3D11_BUFFER_DESC desc = *pDesc;
+    // MF-DXVK
+    if (pDesc->BindFlags == D3D11_BIND_VERTEX_BUFFER) {
+      desc.Usage = D3D11_USAGE_DYNAMIC;
+    }
+    //
     HRESULT hr = D3D11Buffer::NormalizeBufferProperties(&desc);
 
     if (FAILED(hr))
