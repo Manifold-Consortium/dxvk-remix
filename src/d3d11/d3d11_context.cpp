@@ -1224,7 +1224,9 @@ namespace dxvk {
           UINT            VertexCount,
           UINT            StartVertexLocation) {
     D3D10DeviceLock lock = LockContext();
-
+    // NV-DXVK start: geometry processing
+    m_parent->m_rtx.PrepareUnindexedDrawGeometryForRT({ 0, 0, VertexCount, StartVertexLocation });
+    // NV-DXVK end
     EmitCs([=] (DxvkContext* ctx) {
       ctx->draw(
         VertexCount, 1,
@@ -1238,7 +1240,9 @@ namespace dxvk {
           UINT            StartIndexLocation,
           INT             BaseVertexLocation) {
     D3D10DeviceLock lock = LockContext();
-    
+    // NV-DXVK start: geometry processing
+    m_parent->m_rtx.PrepareIndexedDrawGeometryForRT({ BaseVertexLocation, 0, IndexCount, StartIndexLocation });
+    // NV-DXVK end
     EmitCs([=] (DxvkContext* ctx) {
       ctx->drawIndexed(
         IndexCount, 1,
@@ -1494,19 +1498,19 @@ namespace dxvk {
 
       if (ppVertexBuffers != nullptr) {
         ppVertexBuffers[i] = inRange
-          ? m_state.ia.vertexBuffers[StartSlot + i].buffer.ref()
+          ? m_state.ia.vertexBuffers[static_cast<size_t>(StartSlot) + i].buffer.ref()
           : nullptr;
       }
       
       if (pStrides != nullptr) {
         pStrides[i] = inRange
-          ? m_state.ia.vertexBuffers[StartSlot + i].stride
+          ? m_state.ia.vertexBuffers[static_cast<size_t>(StartSlot) + i].stride
           : 0u;
       }
       
       if (pOffsets != nullptr) {
         pOffsets[i] = inRange
-          ? m_state.ia.vertexBuffers[StartSlot + i].offset
+          ? m_state.ia.vertexBuffers[static_cast<size_t>(StartSlot) + i].offset
           : 0u;
       }
     }
