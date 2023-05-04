@@ -497,7 +497,6 @@ private:
 
  // A BLAS and its data buffer that can be pooled and used for various geometries
 struct PooledBlas : public RcObject {
-  Rc<DxvkDevice> device;
   Rc<DxvkAccelStructure> accelStructure;
   uint64_t accelerationStructureReference = 0;
 
@@ -633,7 +632,6 @@ struct DxvkRaytracingInstanceState {
   Rc<DxvkBuffer> vsFixedFunctionCB;
   uint32_t colorTextureSlot = UINT32_MAX;
   uint32_t colorTextureSlot2 = UINT32_MAX;
-  uint32_t vertexCaptureSlot = UINT32_MAX;
   DxvkRtxLegacyState legacyState;
   DxvkRtxTextureStageState texStage;
   uint32_t clipPlaneMask = 0;

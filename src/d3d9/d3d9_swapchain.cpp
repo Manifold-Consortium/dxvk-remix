@@ -352,7 +352,7 @@ namespace dxvk {
           HWND     hDestWindowOverride,
     const RGNDATA* pDirtyRegion,
           DWORD    dwFlags) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     // NV-DXVK start: Restart RTX capture on the new frame
     m_parent->m_rtx.EndFrame();
@@ -480,9 +480,11 @@ namespace dxvk {
                                 | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
       resolveInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
       resolveInfo.layout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      
+
+      // NV-DXVK start: add debug names to VkImage objects
       Rc<DxvkImage> resolvedSrc = m_device->createImage(
-        resolveInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppTexture);
+        resolveInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppTexture, "GetFrontBufferData resolved src");
+      // NV-DXVK end
 
       m_parent->EmitCs([
         cDstImage = resolvedSrc,
@@ -535,9 +537,11 @@ namespace dxvk {
                                    | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
       blitCreateInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
       blitCreateInfo.layout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      
+
+      // NV-DXVK start: add debug names to VkImage objects
       Rc<DxvkImage> blittedSrc = m_device->createImage(
-        blitCreateInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppTexture);
+        blitCreateInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppTexture, "GetFrontBufferData blit src");
+      // NV-DXVK end
 
       const DxvkFormatInfo* dstFormatInfo = imageFormatInfo(blittedSrc->info().format);
       const DxvkFormatInfo* srcFormatInfo = imageFormatInfo(srcImage->info().format);
@@ -975,7 +979,7 @@ namespace dxvk {
 
 
   void D3D9SwapChainEx::PresentImage(UINT SyncInterval) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     m_parent->Flush();
 
     // Retrieve the image and image view to present
@@ -1049,7 +1053,7 @@ namespace dxvk {
 
 
   void D3D9SwapChainEx::SubmitPresent(const vk::PresenterSync& Sync, uint32_t FrameId) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     // Present from CS thread so that we don't
     // have to synchronize with it first.
     m_presentStatus.result = VK_NOT_READY;
@@ -1076,7 +1080,7 @@ namespace dxvk {
 
 
   void D3D9SwapChainEx::SynchronizePresent() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     // Recreate swap chain if the previous present call failed
     VkResult status = m_device->waitForSubmission(&m_presentStatus);
 

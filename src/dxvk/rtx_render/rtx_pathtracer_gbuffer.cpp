@@ -140,7 +140,6 @@ namespace dxvk {
   }
 
   void DxvkPathtracerGbuffer::prewarmShaders(DxvkPipelineManager& pipelineManager) const {
-
     const bool isOpacityMicromapSupported = OpacityMicromapManager::checkIsOpacityMicromapSupported(m_device);
 
     for (int32_t isPSRPass = 1; isPSRPass >= 0; isPSRPass--) {
@@ -157,7 +156,6 @@ namespace dxvk {
   }
 
   void DxvkPathtracerGbuffer::dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
     ScopedGpuProfileZone(ctx, "Gbuffer Raytracing");
 
     // Bind resources
@@ -323,7 +321,7 @@ namespace dxvk {
                                                                           const bool useRayQuery,
                                                                           const bool serEnabled, 
                                                                           const bool ommEnabled) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     DxvkRaytracingPipelineShaders shaders;
     if (useRayQuery) {
       if (isPSRPass) {

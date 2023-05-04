@@ -21,34 +21,33 @@
 */
 #pragma once
 
-#include "rtx_resources.h"
-#include "../util/rc/util_rc_ptr.h"
+#include "util_vector.h"
 
 namespace dxvk {
+  constexpr float kSRGBGamma = 2.2f;
 
-  class DxvkDevice;
-
-  class DxvkPathtracerGbuffer {
-
-  public:
-    enum class RaytraceMode {
-      RayQuery = 0,
-      RayQueryRayGen,
-      TraceRay,
-      Count
+  // Converts a sRGB color encoded in gamma space to linear space.
+  inline Vector3 sRGBGammaToLinear(const Vector3& c) {
+    // Note: Approximation of actual sRGB OETF.
+    return {
+      std::pow(c.x, kSRGBGamma),
+      std::pow(c.y, kSRGBGamma),
+      std::pow(c.z, kSRGBGamma),
     };
+  }
 
-    DxvkPathtracerGbuffer(DxvkDevice* device);
-    ~DxvkPathtracerGbuffer() = default;
+  // Converts a sRGB color encoded in linear space to gamma space.
+  inline Vector3 sRGBLinearToGamma(const Vector3& c) {
+    // Note: Approximation of actual sRGB EOTF.
+    return {
+      std::pow(c.x, 1.0f / kSRGBGamma),
+      std::pow(c.y, 1.0f / kSRGBGamma),
+      std::pow(c.z, 1.0f / kSRGBGamma),
+    };
+  }
 
-    void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
-    void dispatch(class RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
-
-    static const char* raytraceModeToString(RaytraceMode raytraceMode);
-
-  private:
-    static DxvkRaytracingPipelineShaders getPipelineShaders(const bool isPSRPass, const bool useRayQuery, const bool serEnabled, const bool ommEnabled);
-    Rc<DxvkShader> getComputeShader(const bool isPSRPass) const;
-    Rc<DxvkDevice> m_device;
-  };
+  // Converts a sRGB color to luminance based on the BT.709 standard.
+  inline float sRGBLuminance(const Vector3& c) {
+    return c.x * 0.2126f + c.y * 0.7152f + c.z * 0.0722f;
+  }
 }

@@ -209,7 +209,7 @@ namespace dxvk {
     }
     
     if (vkImage == VK_NULL_HANDLE)
-      m_image = m_device->GetDXVKDevice()->createImage(imageInfo, memoryProperties, DxvkMemoryStats::Category::AppBuffer);
+      m_image = m_device->GetDXVKDevice()->createImage(imageInfo, memoryProperties, DxvkMemoryStats::Category::AppBuffer, "common texture");
     else
       m_image = m_device->GetDXVKDevice()->createImageFromVkImage(imageInfo, vkImage);
   }

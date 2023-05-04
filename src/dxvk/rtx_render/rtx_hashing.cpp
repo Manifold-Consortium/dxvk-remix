@@ -31,7 +31,9 @@
 
 #include "rtx_options.h"
 #include "rtx_hashing.h"
-#include "Tracy.hpp"
+#include "dxvk_scoped_annotation.h"
+#include "rtx_geometry_utils.h"
+#include "rtx_types.h"
 
 namespace dxvk {
   const static char* HashComponentNames[] = {
@@ -42,6 +44,7 @@ namespace dxvk {
     "indices",
     "legacyindices",
     "geometrydescriptor",
+    "vertexlayout",
   };
   static_assert((sizeof(HashComponentNames) / sizeof(char*)) == (size_t) HashComponents::Count);
 
@@ -87,15 +90,20 @@ namespace dxvk {
     return XXH3_64bits_withSeed(&indexType, sizeof(indexType), h);
   }
 
+  XXH64_hash_t hashVertexLayout(const RasterGeometry& input) {
+    const size_t vertexStride = (input.isVertexDataInterleaved() && input.areFormatsGpuFriendly()) ? input.positionBuffer.stride() : RtxGeometryUtils::computeOptimalVertexStride(input);
+    return XXH3_64bits(&vertexStride, sizeof(vertexStride));
+  }
+
   XXH64_hash_t hashContiguousMemory(const void* pData, size_t byteSize) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     return XXH3_64bits(pData, byteSize);
   }
 
   template<typename T>
   XXH64_hash_t hashVertexRegionIndexed(const HashQuery& query, const std::vector<T>& uniqueIndices) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     XXH64_hash_t result = 0;
 
@@ -143,7 +151,7 @@ namespace dxvk {
   // TODO (REMIX-656): Remove this once we can transition content to new hash
   template<typename T>
   XXH64_hash_t hashIndicesLegacy(const void* pIndexData, const size_t indexCount) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     XXH64_hash_t indexHash = 0;
 
@@ -162,7 +170,7 @@ namespace dxvk {
 
   // TODO (REMIX-656): Remove this once we can transition content to new hash
   void hashRegionLegacy(const HashQuery& query, XXH64_hash_t& h0, XXH64_hash_t& h1) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     // Need to round the vertex positions to prevent floating point error from changing the hash.  In practice positions were found
     // to have value errors in the order of 1 mm, so this step value is chosen to be within an order of magnitude of 1 cm.

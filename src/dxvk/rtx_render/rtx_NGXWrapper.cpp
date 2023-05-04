@@ -39,6 +39,8 @@
 
 namespace dxvk
 {
+  NGXWrapper* NGXWrapper::s_instance = nullptr;
+
   namespace
   {
     std::string resultToString(NVSDK_NGX_Result result)
@@ -66,7 +68,7 @@ namespace dxvk
 
   void NGXWrapper::initializeNGX(const wchar_t* logFolder)
   {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
     m_initialized = false;
     m_supportsDLSS = false;
@@ -156,7 +158,7 @@ namespace dxvk
     bool sharpening,
     NVSDK_NGX_PerfQuality_Value perfQuality)
   {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     if (!m_supportsDLSS || !m_initialized)
       return;
 
@@ -202,9 +204,28 @@ namespace dxvk
     }
   }
 
+  void NGXWrapper::releaseInstance() {
+    if (s_instance != nullptr) {
+      delete s_instance;
+      s_instance = nullptr;
+    }
+  }
+
+  NGXWrapper* NGXWrapper::getInstance(DxvkDevice* device) {
+    // Only one NGX instance is allowed, release resource if a different device appears
+    if (s_instance && s_instance->m_device != device) {
+      releaseInstance();
+    }
+
+    if (!s_instance) {
+      s_instance = new NGXWrapper(device, dxvk::str::tows(dxvk::env::getExePath().c_str()).c_str());
+    }
+    return s_instance;
+  }
+
   NGXWrapper::OptimalSettings NGXWrapper::queryOptimalSettings(const uint32_t displaySize[2], NVSDK_NGX_PerfQuality_Value perfQuality) const
   {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     OptimalSettings settings;
 
     NVSDK_NGX_Result result = NGX_DLSS_GET_OPTIMAL_SETTINGS(m_parameters,
@@ -260,7 +281,7 @@ namespace dxvk
     float motionVectorScale[2],
     bool autoExposure) const
   {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     if (!m_featureDLSS)
       return false;
 

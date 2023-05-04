@@ -41,7 +41,6 @@
 #include "rtx_intersection_test_helpers.h"
 
 #include "dxvk_scoped_annotation.h"
-#include "../tracy/Tracy.hpp"
 
 namespace dxvk {
 
@@ -55,8 +54,9 @@ namespace dxvk {
     , m_bindlessResourceManager(device)
     , m_volumeManager(device)
     , m_pReplacer(new AssetReplacer(device))
-    , m_gameCapturer(new GameCapturer(*this))
-    , m_cameraManager(device) {
+    , m_gameCapturer(new GameCapturer(*this, device->getCommon()->metaExporter()))
+    , m_cameraManager(device)
+    , m_startTime(std::chrono::system_clock::now()) {
     InstanceEventHandler instanceEvents(this);
     instanceEvents.onInstanceAddedCallback = [this](const RtInstance& instance) { onInstanceAdded(instance); };
     instanceEvents.onInstanceUpdatedCallback = [this](RtInstance& instance, const RtSurfaceMaterial& material, bool hasTransformChanged, bool hasVerticesChanged) { onInstanceUpdated(instance, material, hasTransformChanged, hasVerticesChanged); };
@@ -65,6 +65,9 @@ namespace dxvk {
     
     if (env::getEnvVar("DXVK_RTX_CAPTURE_ENABLE_ON_FRAME") != "") {
       m_beginUsdExportFrameNum = stoul(env::getEnvVar("DXVK_RTX_CAPTURE_ENABLE_ON_FRAME"));
+    }
+    if (env::getEnvVar("DXVK_DENOISER_NRD_FRAME_TIME_MS") != "") {
+      m_useFixedFrameTime = true;
     }
   }
 
@@ -83,13 +86,29 @@ namespace dxvk {
     return m_pReplacer->getReplacementStatus();
   }
 
+  // Returns wall time between start of app and current time.
+  uint32_t SceneManager::getGameTimeSinceStartMS() {
+    // Used in testing
+    if (m_useFixedFrameTime) {
+      float deltaTimeMS = 1000.f / 60; // Assume 60 fps
+      return (uint32_t) (m_device->getCurrentFrameId() * deltaTimeMS);
+    }
+
+    // TODO(TREX-1004) find a way to 'pause' this when a game is paused.
+    auto currTime = std::chrono::system_clock::now();
+
+    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(currTime - m_startTime);
+
+    return static_cast<uint32_t>(elapsedMs.count());
+  }
+
   void SceneManager::initialize(Rc<DxvkContext> ctx) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     m_pReplacer->initialize(ctx);
   }
 
-  void SceneManager::clear(Rc<RtxContext> ctx, bool needWfi) {
-    ZoneScoped;
+  void SceneManager::clear(Rc<DxvkContext> ctx, bool needWfi) {
+    ScopedCpuProfileZone();
 
     // Only clear once after the scene disappears, to avoid adding a WFI on every frame through clear().
     if (needWfi)
@@ -120,7 +139,7 @@ namespace dxvk {
   }
 
   void SceneManager::garbageCollection() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     // Garbage collection for BLAS/Scene objects
     if (!RtxOptions::Get()->enableAntiCulling())
     {
@@ -194,7 +213,8 @@ namespace dxvk {
   }
 
   template<bool isNew>
-  SceneManager::ObjectCacheState SceneManager::processGeometryInfo(Rc<RtxContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, RaytraceGeometry& inOutGeometry) {
+  SceneManager::ObjectCacheState SceneManager::processGeometryInfo(Rc<DxvkContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, RaytraceGeometry& inOutGeometry) {
+    ScopedCpuProfileZone();
     ObjectCacheState result = ObjectCacheState::KBuildBVH;
     const RasterGeometry& input = drawCallState.getGeometryData();
 
@@ -242,12 +262,13 @@ namespace dxvk {
     // Assume we won't need this, and update the value if required
     output.previousPositionBuffer = RaytraceBuffer();
 
+    const size_t vertexStride = (input.isVertexDataInterleaved() && input.areFormatsGpuFriendly()) ? input.positionBuffer.stride() : RtxGeometryUtils::computeOptimalVertexStride(input);
+
     switch (result) {
       case ObjectCacheState::KBuildBVH: {
         // Set up the ideal vertex params, if input vertices are interleaved, it's safe to assume the positionBuffer stride is the vertex stride
         output.vertexCount = input.vertexCount;
 
-        const size_t vertexStride = (input.isVertexDataInterleaved() && input.areFormatsGpuFriendly()) ? input.positionBuffer.stride() : RtxGeometryUtils::computeOptimalVertexStride(input);
         const size_t vertexBufferSize = output.vertexCount * vertexStride;
 
         // Set up the ideal index params
@@ -282,15 +303,35 @@ namespace dxvk {
         break;
       }
       case ObjectCacheState::kUpdateBVH: {
+        bool invalidateHistory = false;
+
+        // Stride changed, so we must recreate the previous buffer and use identical data
+        if (output.historyBuffer[0]->info().size != align(vertexStride * input.vertexCount, CACHE_LINE_SIZE)) {
+          auto desc = output.historyBuffer[0]->info();
+          desc.size = align(vertexStride * input.vertexCount, CACHE_LINE_SIZE);
+          output.historyBuffer[0] = m_device->createBuffer(desc, memoryProperty, DxvkMemoryStats::Category::RTXAccelerationStructure);
+
+          // Invalidate the current buffer
+          output.historyBuffer[1] = nullptr;
+
+          // Mark this object for realignment
+          invalidateHistory = true;
+        }
+
         // Use the previous updates vertex data for previous position lookup
         std::swap(output.historyBuffer[0], output.historyBuffer[1]);
 
         if (output.historyBuffer[0].ptr() == nullptr) {
           // First frame this object has been dynamic need to allocate a 2nd frame of data to preserve history.
-          output.historyBuffer[0] = m_device->createBuffer(inOutGeometry.historyBuffer[0]->info(), memoryProperty, DxvkMemoryStats::Category::RTXAccelerationStructure);
+          output.historyBuffer[0] = m_device->createBuffer(output.historyBuffer[1]->info(), memoryProperty, DxvkMemoryStats::Category::RTXAccelerationStructure);
         } 
 
         RtxGeometryUtils::cacheVertexDataOnGPU(ctx, input, output);
+
+        // Sometimes, we need to invalidate history, do that here by copying the current buffer to the previous..
+        if (invalidateHistory) {
+          ctx->copyBuffer(output.historyBuffer[1], 0, output.historyBuffer[0], 0, output.historyBuffer[1]->info().size);
+        }
 
         // Assign the previous buffer using the last slice (copy most params from the position, just change buffer)
         output.previousPositionBuffer = RaytraceBuffer(DxvkBufferSlice(output.historyBuffer[1], 0, output.positionBuffer.length()), output.positionBuffer.offsetFromSlice(), output.positionBuffer.stride(), output.positionBuffer.vertexFormat());
@@ -308,8 +349,8 @@ namespace dxvk {
   }
 
 
-  void SceneManager::onFrameEnd(Rc<RtxContext> ctx) {
-    ZoneScoped;
+  void SceneManager::onFrameEnd(Rc<DxvkContext> ctx) {
+    ScopedCpuProfileZone();
     if (m_enqueueDelayedClear) {
       clear(ctx, true);
       m_enqueueDelayedClear = false;
@@ -325,7 +366,11 @@ namespace dxvk {
     m_materialTextureSampler = nullptr;
   }
 
-  void SceneManager::submitDrawState(Rc<RtxContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& input) {
+  std::unordered_set<XXH64_hash_t> uniqueHashes;
+
+
+  void SceneManager::submitDrawState(Rc<DxvkContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& input) {
+    ScopedCpuProfileZone();
     const uint32_t kBufferCacheLimit = kSurfaceInvalidBufferIndex - 10; // Limit for unique buffers minus some padding
     if (m_bufferCache.getTotalCount() >= kBufferCacheLimit && m_bufferCache.getActiveCount() >= kBufferCacheLimit) {
       Logger::info("[RTX-Compatibility-Info] This application is pushing more unique buffers than is currently supported - some objects may not raytrace.");
@@ -354,17 +399,23 @@ namespace dxvk {
     // TODO (REMIX-656): Remove this once we can transition content to new hash
     if ((RtxOptions::Get()->GeometryHashGenerationRule & rules::LegacyAssetHash0) == rules::LegacyAssetHash0) {
       if (!pReplacements) {
-        pReplacements = m_pReplacer->getReplacementsForMesh(input.getHashLegacy(rules::LegacyAssetHash0));
-        if (RtxOptions::Get()->logLegacyHashReplacementMatches() && pReplacements)
-          Logger::info(str::format("[Legacy-Hash-Replacement] Found a mesh referenced from legacyHash0: ", std::hex, input.getHash(rules::LegacyAssetHash0), ", new hash: ", std::hex, activeReplacementHash));
+        const XXH64_hash_t legacyHash = input.getHashLegacy(rules::LegacyAssetHash0);
+        pReplacements = m_pReplacer->getReplacementsForMesh(legacyHash);
+        if (RtxOptions::Get()->logLegacyHashReplacementMatches() && pReplacements && uniqueHashes.find(legacyHash) == uniqueHashes.end()) {
+          uniqueHashes.insert(legacyHash);
+          Logger::info(str::format("[Legacy-Hash-Replacement] Found a mesh referenced from legacyHash0: ", std::hex, legacyHash, ", new hash: ", std::hex, activeReplacementHash));
+        }
       }
     }
 
     if ((RtxOptions::Get()->GeometryHashGenerationRule & rules::LegacyAssetHash1) == rules::LegacyAssetHash1) {
       if (!pReplacements) {
-        pReplacements = m_pReplacer->getReplacementsForMesh(input.getHashLegacy(rules::LegacyAssetHash1));
-        if (RtxOptions::Get()->logLegacyHashReplacementMatches() && pReplacements)
-          Logger::info(str::format("[Legacy-Hash-Replacement] Found a mesh referenced from legacyHash1: ", std::hex, input.getHash(rules::LegacyAssetHash1), ", new hash: ", std::hex, activeReplacementHash));
+        const XXH64_hash_t legacyHash = input.getHashLegacy(rules::LegacyAssetHash1);
+        pReplacements = m_pReplacer->getReplacementsForMesh(legacyHash);
+        if (RtxOptions::Get()->logLegacyHashReplacementMatches() && pReplacements && uniqueHashes.find(legacyHash) == uniqueHashes.end()) {
+          uniqueHashes.insert(legacyHash);
+          Logger::info(str::format("[Legacy-Hash-Replacement] Found a mesh referenced from legacyHash1: ", std::hex, legacyHash, ", new hash: ", std::hex, activeReplacementHash));
+        }
       }
     }
 
@@ -416,7 +467,7 @@ namespace dxvk {
       if (isHighlighted(input.getMaterialData().getColorTexture()) || isHighlighted(input.getMaterialData().getColorTexture2())) {
         static MaterialData sHighlightMaterialData(OpaqueMaterialData(TextureRef(), TextureRef(), TextureRef(), TextureRef(), TextureRef(), TextureRef(),
             0.f, 1.f, Vector4(0.2f, 0.2f, 0.2f, 1.f), 0.1f, 0.1f, Vector3(0.f, 1.f, 0.f), true, 1, 1, 0, false, false, 200.f, true, false, BlendType::kAlpha, false, AlphaTestType::kAlways, 0));
-        if (ctx->getGameTimeSinceStartMS() / 200 % 2 == 0) {
+        if (getGameTimeSinceStartMS() / 200 % 2 == 0) {
           overrideMaterialData = &sHighlightMaterialData;
         }
       }
@@ -430,8 +481,7 @@ namespace dxvk {
     }
   }
 
-  void SceneManager::createEffectLight(Rc<RtxContext> ctx, const DrawCallState& input, const RtInstance* instance)
-  {
+  void SceneManager::createEffectLight(Rc<DxvkContext> ctx, const DrawCallState& input, const RtInstance* instance) {
     const float effectLightIntensity = RtxOptions::Get()->getEffectLightIntensity();
     if (effectLightIntensity <= 0.f)
       return;
@@ -473,7 +523,7 @@ namespace dxvk {
     const Vector3 lightPosition = Vector3(worldPos.x, worldPos.y, worldPos.z);
     Vector3 lightRadiance;
     if (RtxOptions::Get()->getEffectLightPlasmaBall()) {
-      const double timeMilliseconds = ctx->getGameTimeSinceStartMS();
+      const double timeMilliseconds = getGameTimeSinceStartMS();
       const double animationPhase = sin(timeMilliseconds * 0.006) * 0.5 + 0.5;
       lightRadiance = lerp(Vector3(1.f, 0.921f, 0.738f), Vector3(1.f, 0.521f, 0.238f), animationPhase) * radianceFactor;
     } else {
@@ -487,7 +537,8 @@ namespace dxvk {
     m_lightManager.addLight(rtLight, input);
   }
 
-  uint64_t SceneManager::drawReplacements(Rc<RtxContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState* input, const std::vector<AssetReplacement>* pReplacements, const MaterialData* overrideMaterialData) {
+  uint64_t SceneManager::drawReplacements(Rc<DxvkContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState* input, const std::vector<AssetReplacement>* pReplacements, const MaterialData* overrideMaterialData) {
+    ScopedCpuProfileZone();
     uint64_t rootInstanceId = UINT64_MAX;
     // Detect replacements of meshes that would have unstable hashes due to the vertex hash using vertex data from a shared vertex buffer.
     // TODO: Once the vertex hash only uses vertices referenced by the index buffer, this should be removed.
@@ -519,7 +570,7 @@ namespace dxvk {
         if (highlightUnsafeReplacement) {
           static MaterialData sHighlightMaterialData(OpaqueMaterialData(TextureRef(), TextureRef(), TextureRef(), TextureRef(), TextureRef(), TextureRef(), 
               0.f, 1.f, Vector4(0.2f, 0.2f, 0.2f, 1.f), 0.1f, 0.1f, Vector3(1.f, 0.f, 0.f), true, 1, 1, 0, false, false, 200.f, true, false, BlendType::kAlpha, false, AlphaTestType::kAlways, 0));
-          if (ctx->getGameTimeSinceStartMS() / 200 % 2 == 0) {
+          if (getGameTimeSinceStartMS() / 200 % 2 == 0) {
             overrideMaterialData = &sHighlightMaterialData;
           }
         }
@@ -552,6 +603,7 @@ namespace dxvk {
   }
   
   void SceneManager::freeBufferCache(const RaytraceGeometry& geoData) {
+    ScopedCpuProfileZone();
     if (geoData.indexBuffer.defined()) {
       m_bufferCache.removeRef(geoData.indexBuffer);
     }
@@ -573,6 +625,7 @@ namespace dxvk {
   }
 
   void SceneManager::updateBufferCache(const RaytraceGeometry& oldGeoData, RaytraceGeometry& newGeoData) {
+    ScopedCpuProfileZone();
     if (RtxOptions::Get()->resetBufferCacheOnEveryFrame()) {
       if (newGeoData.indexBuffer.defined())
         newGeoData.indexBufferIndex = m_bufferCache.addRef(newGeoData.indexBuffer);
@@ -662,7 +715,7 @@ namespace dxvk {
     }
   }
 
-  SceneManager::ObjectCacheState SceneManager::onSceneObjectAdded(Rc<RtxContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, BlasEntry* pBlas) {
+  SceneManager::ObjectCacheState SceneManager::onSceneObjectAdded(Rc<DxvkContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, BlasEntry* pBlas) {
     // This is a new object.
     ObjectCacheState result = processGeometryInfo<true>(ctx, cmd, drawCallState, pBlas->modifiedGeometryData);
     
@@ -673,7 +726,7 @@ namespace dxvk {
     return result;
   }
   
-  SceneManager::ObjectCacheState SceneManager::onSceneObjectUpdated(Rc<RtxContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, BlasEntry* pBlas) {
+  SceneManager::ObjectCacheState SceneManager::onSceneObjectUpdated(Rc<DxvkContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, BlasEntry* pBlas) {
     if (pBlas->frameLastTouched == m_device->getCurrentFrameId()) {
       pBlas->cacheMaterial(drawCallState.getMaterialData());
       return SceneManager::ObjectCacheState::kUpdateInstance;
@@ -734,7 +787,7 @@ namespace dxvk {
   }
 
   // Helper to populate the texture cache with this resource (and patch sampler if required for texture)
-  void SceneManager::trackTexture(Rc<RtxContext> ctx, TextureRef inputTexture, uint32_t& textureIndex, bool hasTexcoords, bool patchSampler, bool allowAsync) {
+  void SceneManager::trackTexture(Rc<DxvkContext> ctx, TextureRef inputTexture, uint32_t& textureIndex, bool hasTexcoords, bool patchSampler, bool allowAsync) {
     // If no texcoords, no need to bind the texture
     if (!hasTexcoords) {
       ONCE(Logger::info(str::format("[RTX-Compatibility-Info] Trying to bind a texture to a mesh without UVs.  Was this intended?")));
@@ -765,7 +818,8 @@ namespace dxvk {
     cachedTexture.frameLastUsed = ctx->getDevice()->getCurrentFrameId();
   }
 
-  uint64_t SceneManager::processDrawCallState(Rc<RtxContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, const MaterialData* overrideMaterialData) {
+  uint64_t SceneManager::processDrawCallState(Rc<DxvkContext> ctx, Rc<DxvkCommandList> cmd, const DrawCallState& drawCallState, const MaterialData* overrideMaterialData) {
+    ScopedCpuProfileZone();
     const MaterialData& renderMaterialData = overrideMaterialData != nullptr ? *overrideMaterialData : drawCallState.getMaterialData();
     if (renderMaterialData.getIgnored()) {
       return UINT64_MAX;
@@ -782,7 +836,7 @@ namespace dxvk {
     pBlas->frameLastTouched = m_device->getCurrentFrameId();
 
     if (drawCallState.getSkinningState().numBones > 0 && (result == ObjectCacheState::KBuildBVH || result == ObjectCacheState::kUpdateBVH)) {
-      ctx->performSkinning(drawCallState, pBlas->modifiedGeometryData);
+      m_device->getCommon()->metaGeometryUtils().dispatchSkinning(cmd, ctx, drawCallState, pBlas->modifiedGeometryData);
       pBlas->frameLastUpdated = pBlas->frameLastTouched;
     }
     
@@ -790,10 +844,14 @@ namespace dxvk {
     assert(result != ObjectCacheState::kInvalid);
 
     if (!m_materialTextureSampler.ptr()) {
+      auto& resourceManager = m_device->getCommon()->getResources();
+
       // Create a sampler to account for DLSS lod bias and any custom filtering overrides the user has set
       const bool temporalUpscaling = RtxOptions::Get()->isDLSSEnabled() || RtxOptions::Get()->isTAAEnabled();
-      const float mipBias = (temporalUpscaling ? (log2(ctx->getResourceManager().getUpscaleRatio()) + RtxOptions::Get()->upscalingMipBias()) : 0.0f) + RtxOptions::Get()->getNativeMipBias();
-      m_materialTextureSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, mipBias, RtxOptions::Get()->getAnisotropicFilteringEnabled());
+      const float totalUpscaleMipBias = temporalUpscaling ? (log2(resourceManager.getUpscaleRatio()) + RtxOptions::Get()->upscalingMipBias()) : 0.0f;
+      const float totalTipBias = totalUpscaleMipBias + RtxOptions::Get()->getNativeMipBias();
+
+      m_materialTextureSampler = resourceManager.getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, totalTipBias, RtxOptions::Get()->getAnisotropicFilteringEnabled());
     }
 
     // Note: Use either the specified override Material Data or the original draw calls state's Material Data to create a Surface Material if no override is specified
@@ -999,12 +1057,14 @@ namespace dxvk {
   }
 
   void SceneManager::finalizeAllPendingTexturePromotions() {
+    ScopedCpuProfileZone();
     for (auto& texture : m_textureCache.getObjectTable())
       if (texture.isPromotable())
         texture.finalizePendingPromotion();
   }
 
   void SceneManager::addLight(const D3DLIGHT9& light) {
+    ScopedCpuProfileZone();
     // Attempt to convert the D3D9 light to RT
 
     std::optional<RtLight> rtLight = RtLight::TryCreate(light);
@@ -1030,8 +1090,8 @@ namespace dxvk {
     }
   }
 
-  void SceneManager::prepareSceneData(Rc<RtxContext> ctx, Rc<DxvkCommandList> cmdList, DxvkBarrierSet& execBarriers, const float frameTimeSecs) {
-    ZoneScoped;
+  void SceneManager::prepareSceneData(Rc<DxvkContext> ctx, Rc<DxvkCommandList> cmdList, DxvkBarrierSet& execBarriers, const float frameTimeSecs) {
+    ScopedGpuProfileZone(ctx, "Build Scene");
 
     // Needs to happen before garbageCollection to avoid destroying dynamic lights
     m_lightManager.dynamicLightMatching();
@@ -1047,7 +1107,6 @@ namespace dxvk {
       return;
     }
 
-    ScopedGpuProfileZone(ctx, "Build Scene");
 
     m_rayPortalManager.prepareSceneData(ctx, frameTimeSecs);
     // Note: only main camera needs to be teleportation corrected as only that one is used for ray tracing & denoising

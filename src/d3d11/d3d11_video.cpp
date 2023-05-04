@@ -153,7 +153,7 @@ namespace dxvk {
       info.tiling = VK_IMAGE_TILING_OPTIMAL;
       info.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       info.shared = VK_FALSE;
-      dxvkImage = m_copy = pDevice->GetDXVKDevice()->createImage(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppBuffer);
+      dxvkImage = m_copy = pDevice->GetDXVKDevice()->createImage(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::AppBuffer, "input view");
     }
 
     DXGI_VK_FORMAT_INFO formatInfo = pDevice->LookupFormat(resourceDesc.Format, DXGI_VK_FORMAT_MODE_COLOR);

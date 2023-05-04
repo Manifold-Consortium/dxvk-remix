@@ -24,7 +24,7 @@ namespace dxvk {
   };
 
   bool getVertexRegion(const RasterBuffer& buffer, const size_t vertexCount, HashQuery& outResult) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     if (!buffer.defined())
       return false;
@@ -69,7 +69,7 @@ namespace dxvk {
 
   template<typename T>
   void hashGeometryData(const size_t indexCount, const uint32_t maxIndexValue, const void* pIndexData, const Rc<DxvkBuffer>& indexBufferRef, const HashQuery vertexRegions[Count], GeometryHashes& hashesOut) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     const HashRule& globalHashRule = RtxOptions::Get()->GeometryHashGenerationRule;
 
@@ -119,7 +119,7 @@ namespace dxvk {
   }
 
   std::shared_future<GeometryHashes> D3D9Rtx::computeHash(const RasterGeometry& geoData, const uint32_t maxIndexValue) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     const uint32_t indexCount = geoData.indexCount;
     const uint32_t vertexCount = geoData.vertexCount;
@@ -146,7 +146,7 @@ namespace dxvk {
 
     // Assume the GPU changed the data via shaders, include the constant buffer data in hash
     XXH64_hash_t vertexDataSeed = kEmptyHash;
-    if (m_parent->UseProgrammableVS() && RtxOptions::Get()->isVertexCaptureEnabled()) {
+    if (m_parent->UseProgrammableVS() && useVertexCapture()) {
       const D3D9ConstantSets& cb = m_parent->m_consts[DxsoProgramTypes::VertexShader];
       vertexDataSeed = XXH3_64bits_withSeed(&d3d9State().vsConsts.fConsts[0], cb.meta.maxConstIndexF * sizeof(float) * 4, vertexDataSeed);
       vertexDataSeed = XXH3_64bits_withSeed(&d3d9State().vsConsts.iConsts[0], cb.meta.maxConstIndexI * sizeof(int) * 4, vertexDataSeed);
@@ -162,13 +162,20 @@ namespace dxvk {
                                                       geoData.topology);
     }
 
-    return m_gpeWorkers.Schedule([vertexRegions, indexBufferRef, pIndexData, indexStride, indexDataSize, indexCount, maxIndexValue, vertexDataSeed, geometryDescriptorHash]() -> GeometryHashes {
-      ZoneScoped;
+    // Calculate this based on the RasterGeometry input data
+    XXH64_hash_t vertexLayoutHash = kEmptyHash;
+    if (RtxOptions::Get()->GeometryHashGenerationRule.test(HashComponents::VertexLayout)) {
+      vertexLayoutHash = hashVertexLayout(geoData);
+    }
+
+    return m_gpeWorkers.Schedule([vertexRegions, indexBufferRef, pIndexData, indexStride, indexDataSize, indexCount, maxIndexValue, vertexDataSeed, geometryDescriptorHash, vertexLayoutHash]() -> GeometryHashes {
+      ScopedCpuProfileZone();
 
       GeometryHashes hashes;
 
       // Finalize the descriptor hash
       hashes[HashComponents::GeometryDescriptor] = geometryDescriptorHash;
+      hashes[HashComponents::VertexLayout] = vertexLayoutHash;
 
       // Index hash
       switch (indexStride) {
@@ -195,7 +202,7 @@ namespace dxvk {
   }
 
   std::shared_future<AxisAlignBoundingBox> D3D9Rtx::computeAxisAlignedBoundingBox(const RasterGeometry& geoData) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     const void* pVertexData = geoData.positionBuffer.mapPtr((size_t)geoData.positionBuffer.offsetFromSlice());
     const uint32_t vertexCount = geoData.vertexCount;
@@ -206,7 +213,7 @@ namespace dxvk {
     }
 
     return m_gpeWorkers.Schedule([pVertexData, vertexCount, vertexStride]()->AxisAlignBoundingBox {
-      ZoneScoped;
+      ScopedCpuProfileZone();
 
       __m128 minPos = _mm_set_ps1(FLT_MAX);
       __m128 maxPos = _mm_set_ps1(-FLT_MAX);

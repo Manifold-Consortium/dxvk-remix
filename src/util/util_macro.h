@@ -21,34 +21,6 @@
 */
 #pragma once
 
-#include "rtx_resources.h"
-#include "../util/rc/util_rc_ptr.h"
-
-namespace dxvk {
-
-  class DxvkDevice;
-
-  class DxvkPathtracerGbuffer {
-
-  public:
-    enum class RaytraceMode {
-      RayQuery = 0,
-      RayQueryRayGen,
-      TraceRay,
-      Count
-    };
-
-    DxvkPathtracerGbuffer(DxvkDevice* device);
-    ~DxvkPathtracerGbuffer() = default;
-
-    void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
-    void dispatch(class RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
-
-    static const char* raytraceModeToString(RaytraceMode raytraceMode);
-
-  private:
-    static DxvkRaytracingPipelineShaders getPipelineShaders(const bool isPSRPass, const bool useRayQuery, const bool serEnabled, const bool ommEnabled);
-    Rc<DxvkShader> getComputeShader(const bool isPSRPass) const;
-    Rc<DxvkDevice> m_device;
-  };
-}
+#define STRINGIFY_HELPER(x) #x
+// A helper macro to stringify the value contained within a macro.
+#define STRINGIFY(x) STRINGIFY_HELPER(x)

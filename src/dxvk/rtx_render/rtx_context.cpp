@@ -48,7 +48,7 @@
 #include "../util/util_defer.h"
 
 #include "rtx_imgui.h"
-#include "../tracy/Tracy.hpp"
+#include "dxvk_scoped_annotation.h"
 #include "imgui/dxvk_imgui.h"
 
 #include <ctime>
@@ -64,8 +64,6 @@ namespace dxvk {
 
   Metrics Metrics::s_instance;
 
-  std::vector<DrawCallState> RtxContext::m_drawCallQueue {};
-
   void RtxContext::takeScreenshot(std::string imageName, Rc<DxvkImage> image) {
     // NOTE: Improve this, I'd like all textures from the same frame to have the same time code...  Currently sampling the time on each "dump op" results in different timecodes.
     auto t = std::time(nullptr);
@@ -79,21 +77,8 @@ namespace dxvk {
       path += '/';
     }
 
-    dumpImageToFile(path, str::format(imageName, "_", tm.tm_mday, tm.tm_mon, tm.tm_year, "-", tm.tm_hour, tm.tm_min, tm.tm_sec, ".dds"), image);
-  }
-
-  void RtxContext::generateSceneThumbnail(const std::string& dir, const std::string& filename, Rc<DxvkImage> image) {
-    env::createDirectory(dir);
-    m_exporter->exportImage(m_device, this, str::format(dir, filename, ".dds"), image, true);
-  }
-
-  void RtxContext::dumpImageToFile(const std::string& dir, const std::string& filename, Rc<DxvkImage> image) {
-    env::createDirectory(dir);
-    m_exporter->exportImage(m_device, this, str::format(dir, filename), image);
-  }
-  
-  void RtxContext::copyBufferFromGPU(const DxvkBufferSlice& buffer, AssetExporter::BufferCallback bufferCallback) {
-    m_exporter->exportBuffer(m_device, this, buffer, bufferCallback);
+    auto& exporter = getCommonObjects()->metaExporter();
+    exporter.dumpImageToFile(this, path, str::format(imageName, "_", tm.tm_mday, tm.tm_mon, tm.tm_year, "-", tm.tm_hour, tm.tm_min, tm.tm_sec, ".dds"), image);
   }
 
   void RtxContext::blitImageHelper(const Rc<DxvkImage>& srcImage, const Rc<DxvkImage>& dstImage, VkFilter filter) {
@@ -140,8 +125,6 @@ namespace dxvk {
   RtxContext::RtxContext(const Rc<DxvkDevice>& device)
     : DxvkContext(device)
     , m_captureStateForRTX(true)
-    , m_scratchAllocator(device, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR)
-    , m_exporter(new AssetExporter())
   {
     m_experimental = RtxOptions::Get()->enableManifoldExperimental();
 
@@ -186,11 +169,8 @@ namespace dxvk {
       m_terminateAppFrameNum = stoul(env::getEnvVar("DXVK_TERMINATE_APP_FRAME"));
       m_triggerDelayedTerminate = true;
     }
-    if (env::getEnvVar("DXVK_DENOISER_NRD_FRAME_TIME_MS") != "") {
-      m_useFixedFrameTime = true;
-    }
+
     m_prevRunningTime = std::chrono::system_clock::now();
-    m_startTime = std::chrono::system_clock::now();
 
     checkOpacityMicromapSupport();
     checkShaderExecutionReorderingSupport();
@@ -240,24 +220,8 @@ namespace dxvk {
     return (float)delta * 0.001f * 0.001f; // to secs
   }
 
-  // Returns wall time between start of app and current time.
-  uint32_t RtxContext::getGameTimeSinceStartMS() {
-    // Used in testing
-    if (m_useFixedFrameTime) {
-      float deltaTimeMS = 1000.f / 60; // Assume 60 fps
-      return (uint32_t)(m_device->getCurrentFrameId() * deltaTimeMS);
-    }
-
-    // TODO(TREX-1004) find a way to 'pause' this when a game is paused.
-    auto currTime = std::chrono::system_clock::now();
-
-    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(currTime - m_startTime);
-
-    return static_cast<uint32_t>(elapsedMs.count());
-  }
-
   VkExtent3D RtxContext::setDownscaleExtent(const VkExtent3D& upscaleExtent) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     VkExtent3D downscaleExtent;
     if (shouldUseDLSS()) {
       DxvkDLSS& dlss = m_common->metaDLSS();
@@ -302,7 +266,7 @@ namespace dxvk {
 
   // Hooked into D3D9 presentImage (same place HUD rendering is)
   void RtxContext::injectRTX(Rc<DxvkImage> targetImage) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     m_device->setPresentThrottleDelay(RtxOptions::Get()->getPresentThrottleDelay());
 
@@ -560,11 +524,6 @@ namespace dxvk {
           }
         }
 
-        for (auto& pendingReq : m_pendingThumbnailRequests) {
-          generateSceneThumbnail(pendingReq.directory, pendingReq.filename, rtOutput.m_finalOutput.image);
-        }
-        m_pendingThumbnailRequests.clear();
-
         // Set up output src
         Rc<DxvkImage> srcImage = rtOutput.m_finalOutput.image;
 
@@ -593,9 +552,6 @@ namespace dxvk {
     } // end (isRaytracingEnabled && isCameraValid)
 
 endinject:
-    // Bake sky probe if any
-    bakeSkyProbe();
-
     // The rest of the frame should render without RTX capture - at the moment that means UI stuff should raster on top of the RTX output
     disableRtxCapture();
 
@@ -645,18 +601,17 @@ endinject:
         getSceneManager().isGameCapturerIdle()) {
       Logger::info(str::format("RTX: Terminating application"));
       Metrics::serialize();
-      m_exporter->waitForAllExportsToComplete();
+      getCommonObjects()->metaExporter().waitForAllExportsToComplete();
 
       env::killProcess();
     }
-
 
     // Enable this again for the next frame
     enableRtxCapture();
   }
 
   void RtxContext::updateMetrics(const float frameTimeSecs, const float gpuIdleTimeSecs) const {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     Metrics::log(Metric::average_frame_time, frameTimeSecs * 1000); // In milliseconds
     Metrics::log(Metric::gpu_idle_ticks, gpuIdleTimeSecs * 1000); // In milliseconds
     uint64_t vidUsageMib = 0;
@@ -695,10 +650,6 @@ endinject:
   void RtxContext::setTextureSlots(const uint32_t colorTextureSlot, const uint32_t colorTextureSlot2) {
     m_rtState.colorTextureSlot = colorTextureSlot;
     m_rtState.colorTextureSlot2 = colorTextureSlot2;
-  }
-
-  void RtxContext::setVertexCaptureSlot(const uint32_t vertexCaptureSlot) {
-    m_rtState.vertexCaptureSlot = vertexCaptureSlot;
   }
 
   void RtxContext::setObjectTransform(const Matrix4& objectToWorld) {
@@ -763,7 +714,7 @@ endinject:
   }
 
   RtxGeometryStatus RtxContext::commitGeometryToRT(const DrawParameters& params){
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     if (!m_captureStateForRTX || !RtxOptions::Get()->enableRaytracing())
       return RtxGeometryStatus::Ignored;
@@ -871,33 +822,7 @@ endinject:
       // This is fixed function vertex pipeline.
       const D3D9FixedFunctionVS* pVertexMaterialData = (D3D9FixedFunctionVS*) m_rtState.vsFixedFunctionCB->mapPtr(0);
       originalMaterialData.m_d3dMaterial = pVertexMaterialData->Material;
-    } else if (RtxOptions::Get()->isVertexCaptureEnabled()) {
-      if (m_rc[m_rtState.vertexCaptureSlot].bufferView == nullptr && m_rtState.vertexCaptureSlot >= m_rc.size())
-        return RtxGeometryStatus::Ignored;
-
-      Rc<DxvkBuffer> vertexCaptureBuffer = m_rc[m_rtState.vertexCaptureSlot].bufferView->buffer();
-
-      // Known stride for vertex capture buffers
-      const uint32_t stride = sizeof(float) * 8;
-
-      geoData.positionBuffer = RasterBuffer(DxvkBufferSlice(vertexCaptureBuffer), 0, stride, VK_FORMAT_R32G32B32A32_SFLOAT);
-      assert(geoData.positionBuffer.offset() % 4 == 0);
-
-      // Did we have a texcoord buffer bound for this draw?
-      if (!geoData.texcoordBuffer.defined() || !RtxGeometryUtils::isTexcoordFormatValid(geoData.texcoordBuffer.vertexFormat())) {
-        // Known offset for vertex capture buffers
-        const uint32_t texcoordOffset = sizeof(float) * 4;
-        geoData.texcoordBuffer = RasterBuffer(DxvkBufferSlice(vertexCaptureBuffer), texcoordOffset, stride, VK_FORMAT_R32G32_SFLOAT);
-        assert(geoData.texcoordBuffer.offset() % 4 == 0);
-      }
-
-      // We know nothing about these buffers, or what format they may be in, so ignore for now - address in [TREX-416]
-      geoData.normalBuffer = RasterBuffer();
-      geoData.color0Buffer = RasterBuffer();
-    } else {
-      ONCE(Logger::info(str::format("[RTX-Compatibility-Info] Shader usage detected, try enabling VertexCapture for this application.")));
-      return RtxGeometryStatus::Ignored;
-    } 
+    }
 
     const auto fusedMode = RtxOptions::Get()->fusedWorldViewMode();
     if (unlikely(fusedMode != FusedWorldViewMode::None)) {
@@ -1092,7 +1017,7 @@ endinject:
   }
 
   void RtxContext::processPendingDrawCalls() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     spillRenderPass(false);
 
@@ -1117,7 +1042,7 @@ endinject:
   }
 
   bool RtxContext::requiresDrawCall() const {
-    return (RtxOptions::Get()->isVertexCaptureEnabled() && m_rtState.useProgrammableVS) || !m_captureStateForRTX || !RtxOptions::Get()->enableRaytracing();
+    return m_rtState.useProgrammableVS || !m_captureStateForRTX || !RtxOptions::Get()->enableRaytracing();
   }
 
   void RtxContext::draw(
@@ -1207,7 +1132,7 @@ endinject:
   }
 
   void RtxContext::updateRaytraceArgsConstantBuffer(Rc<DxvkCommandList> cmdList, Resources::RaytracingOutput& rtOutput, float frameTimeSecs) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     // Prepare shader arguments
     RaytraceArgs &constants = rtOutput.m_raytraceArgs;
     constants = {}; 
@@ -1304,7 +1229,7 @@ endinject:
     constants.enhanceBSDFIndirectLightMinRoughness = m_common->metaComposite().dlssEnhancementIndirectLightMinRoughness();
     constants.enableFirstBounceLobeProbabilityDithering = RtxOptions::Get()->isFirstBounceLobeProbabilityDitheringEnabled();
     constants.enableUnorderedResolveInIndirectRays = RtxOptions::Get()->isUnorderedResolveInIndirectRaysEnabled();
-    constants.enableEmissiveParticlesInIndirectRays = RtxOptions::Get()->isEmissiveParticlesInIndirectRaysEnabled();
+    constants.enableUnorderedEmissiveParticlesInIndirectRays = RtxOptions::Get()->enableUnorderedEmissiveParticlesInIndirectRays();
     constants.enableDecalMaterialBlending = RtxOptions::Get()->isDecalMaterialBlendingEnabled();
     constants.enableBillboardOrientationCorrection = RtxOptions::Get()->enableBillboardOrientationCorrection() && RtxOptions::Get()->enableSeparateUnorderedApproximations();
     constants.useIntersectionBillboardsOnPrimaryRays = RtxOptions::Get()->useIntersectionBillboardsOnPrimaryRays() && constants.enableBillboardOrientationCorrection;
@@ -1382,7 +1307,7 @@ endinject:
 
     // We are going to use this value to perform some animations on GPU, to mitigate precision related issues loop time every 24 hours.
     const uint32_t kOneDayMS = 24 * 60 * 60 * 1000;
-    constants.timeSinceStartMS = getGameTimeSinceStartMS() % kOneDayMS;
+    constants.timeSinceStartMS = getSceneManager().getGameTimeSinceStartMS() % kOneDayMS;
 
     m_common->metaRtxdiRayQuery().setRaytraceArgs(rtOutput);
     getSceneManager().getLightManager().setRaytraceArgs(
@@ -1413,7 +1338,7 @@ endinject:
   }
 
   void RtxContext::bindCommonRayTracingResources(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     Rc<DxvkBuffer> constantsBuffer = getResourceManager().getConstantsBuffer();
     Rc<DxvkBuffer> surfaceBuffer = getSceneManager().getSurfaceBuffer();
     Rc<DxvkBuffer> surfaceMappingBuffer = getSceneManager().getSurfaceMappingBuffer();
@@ -1472,7 +1397,6 @@ endinject:
   }
 
   void RtxContext::dispatchVolumetrics(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
     ScopedGpuProfileZone(this, "Volumetrics");
 
     // Volume Raytracing
@@ -1497,7 +1421,6 @@ endinject:
   }
 
   void RtxContext::dispatchIntegrate(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
     ScopedGpuProfileZone(this, "Integrate Raytracing");
     
     m_common->metaPathtracerIntegrateDirect().dispatch(this, rtOutput);
@@ -1505,13 +1428,12 @@ endinject:
   }
   
   void RtxContext::dispatchDemodulate(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     DemodulatePass& demodulate = m_common->metaDemodulate();
     demodulate.dispatch(this, rtOutput);
   }
   
   void RtxContext::dispatchReferenceDenoise(const Resources::RaytracingOutput& rtOutput, float frameTimeSecs) {
-    ZoneScoped;
     if (!RtxOptions::Get()->isDenoiserEnabled() || !RtxOptions::Get()->useDenoiserReferenceMode())
       return;
 
@@ -1548,7 +1470,6 @@ endinject:
   }
 
   void RtxContext::dispatchDenoise(const Resources::RaytracingOutput& rtOutput, float frameTimeSecs) {
-    ZoneScoped;
     if (!RtxOptions::Get()->isDenoiserEnabled() || RtxOptions::Get()->useDenoiserReferenceMode())
       return;
 
@@ -1659,20 +1580,17 @@ endinject:
   }
 
   void RtxContext::dispatchDLSS(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
     DxvkDLSS& dlss = m_common->metaDLSS();
 
     dlss.dispatch(m_cmd, m_device, this, m_execBarriers, rtOutput, m_resetHistory);
   }
 
   void RtxContext::dispatchNIS(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
     ScopedGpuProfileZone(this, "NIS");
     m_common->metaNIS().dispatch(this, rtOutput);
   }
 
   void RtxContext::dispatchTemporalAA(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
     ScopedGpuProfileZone(this, "TAA");
 
     DxvkTemporalAA& taa = m_common->metaTAA();
@@ -1694,13 +1612,14 @@ endinject:
   }
 
   void RtxContext::dispatchComposite(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
     if (getSceneManager().getSurfaceBuffer() == nullptr) {
       return;
     }
 
+    ScopedGpuProfileZone(this, "Composite");
+
     bool isNRDPreCompositionDenoiserEnabled = RtxOptions::Get()->isDenoiserEnabled() && !RtxOptions::Get()->useDenoiserReferenceMode();
-    
+
     CompositePass::Settings settings;
     settings.fog = getSceneManager().getFogState();
     settings.isNRDPreCompositionDenoiserEnabled = isNRDPreCompositionDenoiserEnabled;
@@ -1714,7 +1633,7 @@ endinject:
   }
 
   void RtxContext::dispatchToneMapping(const Resources::RaytracingOutput& rtOutput, bool performSRGBConversion, const float deltaTime) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     if (m_common->metaDebugView().debugViewIdx() == DEBUG_VIEW_PRE_TONEMAP_OUTPUT)
       return;
@@ -1755,7 +1674,7 @@ endinject:
   }
 
   void RtxContext::dispatchBloom(const Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     DxvkBloom& bloom = m_common->metaBloom();
     if (!bloom.shouldDispatch())
       return;
@@ -1770,7 +1689,7 @@ endinject:
   }
 
   void RtxContext::dispatchPostFx(Resources::RaytracingOutput& rtOutput) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     DxvkPostFx& postFx = m_common->metaPostFx();
     RtCamera& mainCamera = getSceneManager().getCamera();
     if (!postFx.enable()) {
@@ -1787,7 +1706,7 @@ endinject:
   }
 
   void RtxContext::dispatchDebugView(Rc<DxvkImage>& srcImage, const Resources::RaytracingOutput& rtOutput, bool captureScreenImage)  {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     auto& debugView = m_common->metaDebugView();
 
@@ -1801,7 +1720,7 @@ endinject:
   }
 
   void RtxContext::flushCommandList() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
 
     const bool wasCapturingForRtx = m_captureStateForRTX;
 
@@ -1814,12 +1733,10 @@ endinject:
       enableRtxCapture();
     else
       disableRtxCapture();
-
-    m_scratchAllocator.trim();
   }
 
   void RtxContext::updateComputeShaderResources() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     DxvkContext::updateComputeShaderResources();
 
     auto&& layout = m_state.cp.pipeline->layout();
@@ -1835,7 +1752,7 @@ endinject:
   }
 
   void RtxContext::updateRaytracingShaderResources() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     DxvkContext::updateRaytracingShaderResources();
 
     auto&& layout = m_state.rp.pipeline->layout();
@@ -1862,15 +1779,7 @@ endinject:
     return RtxOptions::Get()->isTAAEnabled();
   }
 
-  void RtxContext::performSkinning(const DrawCallState& drawCallState, const RaytraceGeometry& geo) {
-    ZoneScoped;
-    ScopedGpuProfileZone(this, "performSkinning");
-
-    m_common->metaGeometryUtils().dispatchSkinning(m_cmd, this, drawCallState, geo);
-  }
-
   void RtxContext::rasterizeToSkyMatte(const DrawParameters& params) {
-    ZoneScoped;
     ScopedGpuProfileZone(this, "rasterizeToSkyMatte");
 
     auto skyMatteView = getResourceManager().getSkyMatte(this, m_skyColorFormat).view;
@@ -1946,7 +1855,6 @@ endinject:
       {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
     };
 
-    ZoneScoped;
     ScopedGpuProfileZone(this, "rasterizeToSkyProbe");
 
     // Lazy init
@@ -2069,15 +1977,13 @@ endinject:
       if (!options->isSkyboxTexture(colorTextureHash)) {
         return false;
       }
-    }
-    else {
+    } else {
       // TODO (REMIX-1110): This is a WAR to handle non-textured sky materials, will replace soon with geometry hash based solution
       if (m_drawCallID >= options->skyDrawcallIdThreshold()) {
         return false;
       }
     }
 
-    ZoneScoped;
     ScopedGpuProfileZone(this, "rasterizeSky");
 
     // Grab and apply replacement texture if any
@@ -2174,45 +2080,6 @@ endinject:
     }
 
     DxvkContext::clearImageView(imageView, offset, extent, aspect, value);
-  }
-
-  // Schedule sky probe bake on next frame
-  void RtxContext::scheduleSkyProbeBake(const std::string& dir, const std::string& filename) {
-    m_skyProbeBakeOutDir = dir;
-    m_skyProbeBakeOutFilename = filename;
-    m_skyProbeBakePending = true;
-  }
-
-  void RtxContext::bakeSkyProbe() {
-    if (!m_skyProbeBakePending)
-      return;
-
-    auto skyprobeView = getResourceManager().getSkyProbe(Rc<DxvkContext>(this));
-    if (!skyprobeView.isValid()) {
-      return;
-    }
-
-    const auto skyprobeExt = skyprobeView.image->info().extent;
-    const uint32_t equatorLength = std::min(skyprobeExt.width * 4, 16384u);
-    const VkExtent3D latlongExt { equatorLength, equatorLength/2, 1 };
-
-    auto latlong = getResourceManager().createImageResource(Rc<DxvkContext>(this),
-                                                            latlongExt, VK_FORMAT_R16G16B16A16_SFLOAT);
-    m_cmd->trackResource<DxvkAccess::Read>(skyprobeView.view);
-    m_cmd->trackResource<DxvkAccess::Write>(latlong.view);
-
-    const auto transform = RtxOptions::Get()->isZUp() ?
-      RtxImageUtils::LatLongTransform::ZUp2OpenEXR : RtxImageUtils::LatLongTransform::None;
-
-    m_common->metaImageUtils().cubemapToLatLong(Rc<RtxContext>(this),
-                                                skyprobeView.view, latlong.view, transform);
-
-    DxvkContext::flushCommandList();
-    m_device->waitForIdle();
-
-    dumpImageToFile(m_skyProbeBakeOutDir, m_skyProbeBakeOutFilename, latlong.image);
-
-    m_skyProbeBakePending = false;
   }
 
   void RtxContext::updateReflexConstants() {

@@ -119,7 +119,7 @@ namespace dxvk
       AliasedResource(Rc<DxvkContext>& ctx,
                       const VkExtent3D& extent,
                       const VkFormat format,
-                      const char* name = nullptr,
+                      const char* name,
                       const bool allowCompatibleFormatAliasing = false,
                       const uint32_t numLayers = 1,
                       const VkImageType imageType = VK_IMAGE_TYPE_2D,
@@ -128,7 +128,7 @@ namespace dxvk
                       Rc<DxvkContext>& ctx,
                       const VkExtent3D& extent,
                       const VkFormat format,
-                      const char* name = nullptr,
+                      const char* name,
                       const uint32_t numLayers = 1,
                       const VkImageType imageType = VK_IMAGE_TYPE_2D,
                       const VkImageViewType imageViewType = VK_IMAGE_VIEW_TYPE_2D);
@@ -369,7 +369,7 @@ namespace dxvk
 
     float getUpscaleRatio() const { return m_raytracingOutput.isReady() ? ((float)m_downscaledExtent.width / m_targetExtent.width) : 1.0f; }
 
-    bool isResourceReady() { return m_raytracingOutput.isReady(); }
+    bool isResourceReady() const { return m_raytracingOutput.isReady(); }
 
     const VkExtent3D& getTargetDimensions() const { return m_targetExtent; }
     const VkExtent3D& getDownscaleDimensions() const { return m_downscaledExtent; }
@@ -380,12 +380,12 @@ namespace dxvk
     static Rc<DxvkImageView> createImageView(Rc<DxvkContext>& ctx, const Rc<DxvkImage>& image, const VkFormat format,
                                              const uint32_t numLayers, const VkImageViewType imageViewType, 
                                              bool isColorAttachment = false);
-    static Resource createImageResource(Rc<DxvkContext>& ctx, const VkExtent3D& extent, const VkFormat format,
+    static Resource createImageResource(Rc<DxvkContext>& ctx, const char *name, const VkExtent3D& extent, const VkFormat format,
                                         const uint32_t numLayers = 1, const VkImageType imageType = VK_IMAGE_TYPE_2D,
                                         const VkImageViewType imageViewType = VK_IMAGE_VIEW_TYPE_2D,
                                         const VkImageCreateFlags imageCreateFlags = 0, bool isColorAttachment = false);
     
-    static MipMapResource createMipmapResource(Rc<DxvkContext> ctx, const VkExtent3D& extend, VkFormat format, int mipLevel);
+    static MipMapResource createMipmapResource(Rc<DxvkContext> ctx, const VkExtent3D& extend, VkFormat format, int mipLevel, const char* name);
 
   private:
     Resources(Resources const&) = delete;
@@ -407,7 +407,7 @@ namespace dxvk
 
     Tlas m_tlas[Tlas::Type::Count];
 
-    Rc<DxvkDevice> m_device;
+    DxvkDevice* m_device;
 
     VkExtent3D m_downscaledExtent = { 0, 0, 0 };
     VkExtent3D m_targetExtent = { 0, 0, 0 };

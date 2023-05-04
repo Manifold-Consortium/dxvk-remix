@@ -22,7 +22,8 @@
 #include "dxvk_device.h"
 #include "dxvk_instance.h"
 #include "rtx_render/rtx_context.h"
-#include "Tracy.hpp"
+#include "dxvk_scoped_annotation.h"
+
 
 namespace dxvk {
   
@@ -218,8 +219,11 @@ namespace dxvk {
   Rc<DxvkImage> DxvkDevice::createImage(
     const DxvkImageCreateInfo&  createInfo,
           VkMemoryPropertyFlags memoryType,
-          DxvkMemoryStats::Category category) {
-    return new DxvkImage(m_vkd, createInfo, m_objects.memoryManager(), memoryType, category);
+          DxvkMemoryStats::Category category,
+// NV-DXVK start: add debug names to VkImage objects
+          const char *name) {
+    return new DxvkImage(m_vkd, createInfo, m_objects.memoryManager(), memoryType, category, name);
+// NV-DXVK end
   }
   
   
@@ -297,7 +301,7 @@ namespace dxvk {
   void DxvkDevice::presentImage(
     const Rc<vk::Presenter>&        presenter,
           DxvkSubmitStatus*         status) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     
     status->result = VK_NOT_READY;
 
@@ -323,7 +327,7 @@ namespace dxvk {
     const Rc<DxvkCommandList>&      commandList,
           VkSemaphore               waitSync,
           VkSemaphore               wakeSync) {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     DxvkSubmitInfo submitInfo;
     submitInfo.cmdList  = commandList;
     submitInfo.waitSync = waitSync;
@@ -349,7 +353,7 @@ namespace dxvk {
   
   
   void DxvkDevice::waitForIdle() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     this->lockSubmission();
     if (m_vkd->vkDeviceWaitIdle(m_vkd->device()) != VK_SUCCESS)
       Logger::err("DxvkDevice: waitForIdle: Operation failed");

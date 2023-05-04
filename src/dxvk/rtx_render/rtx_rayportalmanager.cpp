@@ -59,7 +59,7 @@ namespace dxvk {
 
   RayPortalManager::RayPortalManager(Rc<DxvkDevice> device, ResourceCache* pResourceCache)
     : m_device(device)
-    , kCameraDepthPenetrationThreshold(0.1f * RtxOptions::Get()->getMeterToWorldUnitScale())
+    , kCameraDepthPenetrationThreshold(RtxOptions::Get()->rayPortalCameraInBetweenPortalsCorrectionThreshold() * RtxOptions::Get()->getMeterToWorldUnitScale())
     , m_pResourceCache(pResourceCache) {
   }
 
@@ -205,7 +205,8 @@ namespace dxvk {
   }
 
   // Prepare scene data is copying constants to a structure - which is then consumed by raytracing CB
-  void RayPortalManager::prepareSceneData(Rc<RtxContext> /*ctx*/, const float /*frameTimeSecs*/) {
+  void RayPortalManager::prepareSceneData(Rc<DxvkContext> /*ctx*/, const float /*frameTimeSecs*/) {
+    ScopedCpuProfileZone();
     // Save the previous frame data
     memcpy(m_sceneData.previousRayPortalHitInfos, m_sceneData.rayPortalHitInfos, sizeof(m_sceneData.previousRayPortalHitInfos));
 
@@ -309,6 +310,7 @@ namespace dxvk {
   }
 
   void RayPortalManager::fixCameraInBetweenPortals(RtCamera& camera) {
+    ScopedCpuProfileZone();
 
     if (!RtxOptions::Get()->getRayPortalCameraInBetweenPortalsCorrection())
       return;
@@ -616,6 +618,7 @@ namespace dxvk {
   }
 
   void RayPortalManager::createVirtualCameras(CameraManager& cameraManager) const {
+    ScopedCpuProfileZone();
     if (!cameraManager.isCameraValid(CameraType::Main))
       return;
 

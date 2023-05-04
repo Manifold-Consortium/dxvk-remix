@@ -29,7 +29,6 @@
 #include "rtx_texture.h"
 
 namespace dxvk {
-  class DxvkDevice;
   class DxvkContext;
   struct ManagedTexture;
 
@@ -80,7 +79,7 @@ namespace dxvk {
     std::atomic<uint32_t> m_texturesPending = { 0u };
     dxvk::thread m_thread;
 
-    uint32_t m_minimumMipLevel;
+    uint32_t m_minimumMipLevel{ 0u };
     fast_unordered_cache<Rc<ManagedTexture>> m_textures;
 
     void threadFunc();

@@ -1,7 +1,6 @@
 #include "dxvk_cmdlist.h"
 #include "dxvk_device.h"
-
-#include "../tracy/Tracy.hpp"
+#include "dxvk_scoped_annotation.h"
 
 namespace dxvk {
     
@@ -125,7 +124,7 @@ namespace dxvk {
   
   
   VkResult DxvkCommandList::synchronize() {
-    ZoneScoped;
+    ScopedCpuProfileZone();
     VkResult status = VK_TIMEOUT;
     
     while (status == VK_TIMEOUT) {
@@ -213,14 +212,20 @@ namespace dxvk {
   }
   
   void DxvkCommandList::cmdBeginDebugUtilsLabel(VkDebugUtilsLabelEXT *pLabelInfo) {
-    m_vki->vkCmdBeginDebugUtilsLabelEXT(m_execBuffer, pLabelInfo);
+    // NV-DXVK start: add debug names to VkImage objects
+    m_vkd->vkCmdBeginDebugUtilsLabelEXT(m_execBuffer, pLabelInfo);
+    // NV-DXVK end
   }
 
   void DxvkCommandList::cmdEndDebugUtilsLabel() {
-    m_vki->vkCmdEndDebugUtilsLabelEXT(m_execBuffer);
+    // NV-DXVK start: add debug names to VkImage objects
+    m_vkd->vkCmdEndDebugUtilsLabelEXT(m_execBuffer);
+    // NV-DXVK end
   }
 
   void DxvkCommandList::cmdInsertDebugUtilsLabel(VkDebugUtilsLabelEXT *pLabelInfo) {
-    m_vki->vkCmdInsertDebugUtilsLabelEXT(m_execBuffer, pLabelInfo);
+    // NV-DXVK start: add debug names to VkImage objects
+    m_vkd->vkCmdInsertDebugUtilsLabelEXT(m_execBuffer, pLabelInfo);
+    // NV-DXVK end
   }
 }
