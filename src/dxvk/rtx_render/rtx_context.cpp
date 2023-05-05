@@ -311,9 +311,6 @@ namespace dxvk {
     const bool isRaytracingEnabled = RtxOptions::Get()->enableRaytracing();
 
     if(isRaytracingEnabled && isCameraValid) {
-      // Make sure any pending work has complete (including draw call processing)
-      processPendingDrawCalls();
-
       if (targetImage == nullptr) {
         targetImage = m_state.om.renderTargets.color[0].view->image();  
       }
@@ -683,36 +680,6 @@ endinject:
     }
   }
 
-  // checks the current state to see if the app is drawing a stencil shadow volume
-  bool RtxContext::isStencilShadowVolumeState() {
-    if (RtxOptions::Get()->ignoreStencilVolumeHeuristics() && m_state.gp.state.ds.enableStencilTest()) {
-      const VkCullModeFlags cullMode = m_state.gp.state.rs.cullMode();
-
-      if (cullMode == VK_CULL_MODE_FRONT_BIT) {
-        const VkStencilOpState state = m_state.gp.state.dsBack.state();
-
-        if (state.depthFailOp == VK_STENCIL_OP_DECREMENT_AND_CLAMP &&
-            state.compareOp == VK_COMPARE_OP_ALWAYS) {
-          return true;
-        }
-
-        if (state.depthFailOp == VK_STENCIL_OP_KEEP &&
-            state.compareOp == VK_COMPARE_OP_NOT_EQUAL) {
-          return true;
-        }
-      } else if (cullMode == VK_CULL_MODE_BACK_BIT) {
-        const VkStencilOpState state = m_state.gp.state.dsFront.state();
-
-        if (state.depthFailOp == VK_STENCIL_OP_INCREMENT_AND_CLAMP &&
-            state.compareOp == VK_COMPARE_OP_ALWAYS) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
   RtxGeometryStatus RtxContext::commitGeometryToRT(const DrawParameters& params){
     ScopedCpuProfileZone();
 
@@ -744,10 +711,6 @@ endinject:
 
     if (m_queryManager.isQueryTypeActive(VK_QUERY_TYPE_OCCLUSION))
       return RtxGeometryStatus::Ignored;
-
-    if (isStencilShadowVolumeState()) {
-      return RtxGeometryStatus::Ignored;
-    }
 
     // We'll need these later
     if (!m_rtState.geometry.futureGeometryHashes.valid())
@@ -1010,35 +973,12 @@ endinject:
     // Process camera data now
     getSceneManager().processCameraData(drawCallState);
 
-    // Add to the list, will be processed later in injectRTX
-    m_drawCallQueue.push_back(drawCallState);
-
-    return RtxGeometryStatus::RayTraced;
-  }
-
-  void RtxContext::processPendingDrawCalls() {
-    ScopedCpuProfileZone();
-
-    spillRenderPass(false);
-
-    if (m_drawCallQueue.empty())
-      return;
-
-    if (m_experimental) {
-      for (auto& drawCallState : m_drawCallQueue) {
-        if (&drawCallState != nullptr)
-          getSceneManager().submitDrawState(this, m_cmd, drawCallState);
-      }
-    } else {
-      for (auto& drawCallState : m_drawCallQueue) {
-        if (drawCallState.finalizeGeometryHashes() &&
-            (!RtxOptions::Get()->calculateMeshBoundingBox() || drawCallState.finalizeGeometryBoundingBox())) {
-          getSceneManager().submitDrawState(this, m_cmd, drawCallState);
-        }
-      }
+    // Sync any pending work with geometry processing threads
+    if (drawCallState.finalizePendingFutures()) {
+      getSceneManager().submitDrawState(this, m_cmd, drawCallState);
     }
 
-    m_drawCallQueue.clear();
+    return RtxGeometryStatus::RayTraced;
   }
 
   bool RtxContext::requiresDrawCall() const {
@@ -1723,9 +1663,6 @@ endinject:
     ScopedCpuProfileZone();
 
     const bool wasCapturingForRtx = m_captureStateForRTX;
-
-    // Convert those volatile snapshots from draw calls to persistent RT objects
-    processPendingDrawCalls();
 
     DxvkContext::flushCommandList();
 
